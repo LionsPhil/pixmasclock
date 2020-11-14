@@ -6,7 +6,7 @@
                 "${workspaceFolder}/**",
                 "/usr/include/SDL"
             ],
-            "defines": [],
+            "defines": ["DESKTOP"],
             "compilerPath": "/usr/bin/clang",
             "cStandard": "c11",
             "cppStandard": "c++14",

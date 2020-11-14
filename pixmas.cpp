@@ -29,7 +29,13 @@ namespace SDL {
 			if(SDL_Init(SDL_INIT_VIDEO) != 0) { throw Error(); }
 			auto video_info = SDL_GetVideoInfo();
 			framebuffer = SDL_SetVideoMode(
-				video_info->current_w, video_info->current_h, 0, SDL_SWSURFACE);
+#ifdef DESKTOP
+				// This is the resolution of the Tontec GPIO display.
+				480, 320,
+#else
+				video_info->current_w, video_info->current_h,
+#endif
+				0, SDL_SWSURFACE);
 			if(framebuffer == nullptr) { throw Error(); }
 		}
 		~Graphics() {
@@ -39,20 +45,22 @@ namespace SDL {
 };
 
 struct Hack {
+	SDL_Surface* fb;
 	std::default_random_engine generator;
 	std::uniform_int_distribution<int> distribution;
 
-	Hack() : distribution(0,100){}
+	Hack(SDL_Surface* framebuffer)
+		: fb(framebuffer), distribution(0, framebuffer->h){}
 
 	void simulate() {
 		// Eh, do it all in render.
 	}
-	void render(SDL_Surface* fb) {
+	void render() {
 		SDL_Rect line = {
 			static_cast<Sint16>(distribution(generator)),
 			static_cast<Sint16>(distribution(generator)),
 			1, 1 };
-		SDL_FillRect(fb, &line, 0x00ffffff);
+		SDL_FillRect(fb, &line, SDL_MapRGB(fb->format, 0xff, 0xff, 0xff));
 		SDL_UpdateRect(fb, line.x, line.y, 1, 1);
 	}
 };
@@ -60,11 +68,14 @@ struct Hack {
 int main(int argc, char** argv) {
 	SDL::Graphics graphics;
 	SDL_WM_SetCaption("pixmas", "pixmas");
+#ifndef DESKTOP
+	SDL_ShowCursor(0);
+#endif
 	SDL_Surface* fb = graphics.framebuffer;
-	SDL_FillRect(fb, NULL, 0x00777777);
+	SDL_FillRect(fb, NULL, SDL_MapRGB(fb->format, 0x77, 0x77, 0x77));
 	SDL_UpdateRect(fb, 0, 0, 0, 0);
 
-	Hack hack;
+	Hack hack(fb);
 
 	Uint32 tickerror = 0;
 	Uint32 ticklast = SDL_GetTicks();
@@ -96,7 +107,7 @@ int main(int argc, char** argv) {
 				tickerror -= tickduration;
 				hack.simulate();
 			} while(tickerror >= tickduration);
-			hack.render(fb);
+			hack.render();
 		} else {
 			/// Have a nap until we actually have at least one tick to run.
 			SDL_Delay(tickduration);
