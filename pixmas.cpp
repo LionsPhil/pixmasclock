@@ -1,20 +1,16 @@
-// vim: ts=4
 // Blah blah Philip Boulain blah copyright blah 2020 blah 3-CLAUSE BSD LICENSE
 #include <cassert>
 #include <cmath>
 
-//#include <algorithm>
 #include <array>
 #include <exception>
-//#include <iostream>
+#include <iostream>
 #include <random>
-//#include <set>
-//#include <sstream>
 #include <vector>
 
 #include <SDL.h>
 
-constexpr int k_snowflake_count = 512;
+constexpr int k_snowflake_count = 1024;
 
 // This is just used to get SDL init/deinit via RAII for nice error handling --
 namespace SDL {
@@ -36,7 +32,7 @@ namespace SDL {
 #else
 				video_info->current_w, video_info->current_h,
 #endif
-				0, SDL_SWSURFACE);
+				0, SDL_SWSURFACE | SDL_DOUBLEBUF);
 			if(framebuffer == nullptr) { throw Error(); }
 		}
 		~Graphics() {
@@ -171,6 +167,8 @@ struct Hack {
 		// Dirty regions only work if we can unpaint previous snowflake
 		// positions, but separate simulate() makes that hard.
 		SDL_FillRect(fb, 0, greyscale[0]);
+		if(SDL_MUSTLOCK(fb)) { SDL_LockSurface(fb); }
+		//Uint8 bytespp = fb->format->BytesPerPixel;
 
 		for(auto&& flake : snowflakes) {
 			// We don't anti-alias.
@@ -182,11 +180,26 @@ struct Hack {
 			if(position.x < 0 || position.x >= fb->w
 				|| position.y < 0 || position.y >= fb->h)
 				{ continue; }
+			Uint32 color = greyscale[flake.brightness];
 			// TODO: This could be faster if hitting the pixel data raw.
-			SDL_FillRect(fb, &position, greyscale[flake.brightness]);
+			SDL_FillRect(fb, &position, color);
+
+			/*Uint8* pixel = static_cast<Uint8*>(fb->pixels)
+				+ (position.x * bytespp)
+				+ (position.y * fb->pitch);
+			switch(bytespp) {
+				case 4:
+					pixel[3] = reinterpret_cast<Uint8*>(&color)[3];
+					pixel[2] = reinterpret_cast<Uint8*>(&color)[2];
+				case 2:
+					pixel[1] = reinterpret_cast<Uint8*>(&color)[1];
+				case 1:
+					pixel[0] = reinterpret_cast<Uint8*>(&color)[0];
+			}*/
 		}
 
-		SDL_UpdateRect(fb, 0, 0, 0, 0);
+		if(SDL_MUSTLOCK(fb)) { SDL_UnlockSurface(fb); }
+		SDL_Flip(fb);
 	}
 };
 
@@ -201,8 +214,9 @@ int main(int argc, char** argv) {
 	SDL_ShowCursor(0);
 #endif
 	SDL_Surface* fb = graphics.framebuffer;
+	std::cerr << static_cast<int>(fb->format->BytesPerPixel) << " bytes per pixel" << std::endl;
 	SDL_FillRect(fb, NULL, SDL_MapRGB(fb->format, 0x77, 0x77, 0x77));
-	SDL_UpdateRect(fb, 0, 0, 0, 0);
+	SDL_Flip(fb);
 
 	Hack hack(fb);
 
