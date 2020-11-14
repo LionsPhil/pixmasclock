@@ -196,7 +196,7 @@ struct DriftingSnow : public Hack::Base {
 };
 
 // This one also expunges the floating point from DriftingSnow
-constexpr int k_physical_snowflake_count = 1024;
+constexpr int k_physical_snowflake_count = 4096;
 struct PhysicalSnow : public Hack::Base {
 	SDL_Surface* fb;
 	std::default_random_engine generator;
@@ -213,6 +213,7 @@ struct PhysicalSnow : public Hack::Base {
 	std::vector<int> breeze_sign;
 	unsigned int tick;
 	unsigned int next_breeze_in;
+	std::vector<Uint8> static_snow;
 
 	struct Snowflake {
 		Sint16 x, y, dx; // dx is sign only
@@ -230,6 +231,9 @@ struct PhysicalSnow : public Hack::Base {
 		void reset_at_top(PhysicalSnow& h) {
 			reset_common(h);
 			y = 0;
+			// Stop things getting too lockstep.
+			delay_y /= 2;
+			delay_y += 1 + (h.random_delay_y(h.generator) / 2);
 		}
 
 	private:
@@ -256,7 +260,8 @@ struct PhysicalSnow : public Hack::Base {
 		breeze_delay(framebuffer->h),
 		breeze_sign(framebuffer->h),
 		tick(0),
-		next_breeze_in(0) {
+		next_breeze_in(0),
+		static_snow(framebuffer->w * framebuffer->h) {
 
 		for(int i=0; i<256; ++i) {
 			greyscale[i] = SDL_MapRGB(fb->format, i, i, i);
@@ -265,6 +270,8 @@ struct PhysicalSnow : public Hack::Base {
 			flake.init(*this);
 		}
 	}
+
+	int ss_at(int x, int y) { return x + fb->w * y; }
 
 	void simulate() override {
 		// Modify breezes
@@ -341,8 +348,32 @@ struct PhysicalSnow : public Hack::Base {
 			if(flake.x < 0) { flake.x += fb->w; }
 			if(flake.x >= fb->w) { flake.x -= fb->w; }
 
-			// Reset if out of bounds vertically
+#ifdef STATIC_SNOW
+			// Collide and collect with static snow/bottom of screen
+			if(flake.y > fb->h) {
+				int mass = static_snow[ss_at(flake.x, fb->h-1)] + flake.mass;
+				if(mass > 255) {
+					static_snow[ss_at(flake.x, fb->h-2)] = mass - 255;
+					mass = 255;
+				}
+				static_snow[ss_at(flake.x, fb->h-1)] = mass;
+				// Respawn
+				flake.reset_at_top(*this);
+			} else if(static_snow[ss_at(flake.x, flake.y)] > 0) {
+				int mass = static_snow[ss_at(flake.x, flake.y)] + flake.mass;
+				if(mass > 255) {
+					if(flake.y > 0) {
+						static_snow[ss_at(flake.x, flake.y-1)] = mass - 255;
+					}
+					mass = 255;
+				}
+				static_snow[ss_at(flake.x, flake.y)] = mass;
+				// Respawn
+				flake.reset_at_top(*this);
+			}
+#else
 			if(flake.y > fb->h) { flake.reset_at_top(*this); }
+#endif
 		}
 		++tick;
 	}
@@ -369,14 +400,32 @@ struct PhysicalSnow : public Hack::Base {
 		}
 #endif
 
+#ifdef STATIC_SNOW
+		int i = 0;
+		for(Sint16 y=0; y<fb->h; ++y) {
+			for(Sint16 x=0; x<fb->w; ++x) {
+				++i;
+				if(static_snow[i]>0) {
+					SDL_Rect position { x, y, 1, 1};
+					SDL_FillRect(fb, &position, greyscale[static_snow[i]]);
+				}
+			}
+		}
+#endif
+
 		for(auto&& flake : snowflakes) {
 			SDL_Rect position { flake.x, flake.y, 1, 1};
 			// Skip out of bounds.
 			if(position.x < 0 || position.x >= fb->w
 				|| position.y < 0 || position.y >= fb->h)
 				{ continue; }
-			Uint32 color = greyscale[flake.mass];
-			SDL_FillRect(fb, &position, color);
+#ifdef STATIC_SNOW
+			unsigned int bright = std::min(255u,
+				flake.mass + static_snow[ss_at(flake.x, flake.y)]);
+#else
+			unsigned int bright = flake.mass;
+#endif
+			SDL_FillRect(fb, &position, greyscale[bright]);
 		}
 
 		if(SDL_MUSTLOCK(fb)) { SDL_UnlockSurface(fb); }
