@@ -4,13 +4,11 @@
 
 #include <array>
 #include <exception>
-#include <iostream>
+#include <memory>
 #include <random>
 #include <vector>
 
 #include <SDL.h>
-
-constexpr int k_snowflake_count = 1024;
 
 // This is just used to get SDL init/deinit via RAII for nice error handling --
 namespace SDL {
@@ -41,12 +39,19 @@ namespace SDL {
 	};
 };
 
-// Graphical hack itself ------------------------------------------------------
-// (This could be an abstract base class and all, but bleh, quick and dirty)
+// Graphical hack interface ---------------------------------------------------
+// (yeah yeah separate files, I CBA to wrassle VScode vs Makefiles right now)
 
-struct Hack {
-	const Uint32 tickduration = 100; // 10Hz
+namespace Hack {
+struct Base {
+	virtual ~Base() {}
+	virtual void simulate() = 0;
+	virtual void render() = 0;
+	virtual Uint32 tick_duration() = 0;
+};
 
+constexpr int k_drifting_snowflake_count = 1024;
+struct DriftingSnow : public Hack::Base {
 	SDL_Surface* fb;
 	std::default_random_engine generator;
 	std::uniform_int_distribution<int> random_x;
@@ -61,13 +66,13 @@ struct Hack {
 		// brightness instead.
 		//double half_size, full_size;
 
-		void init(Hack& h) {
+		void init(DriftingSnow& h) {
 			reset_common(h);
 			y = h.random_y(h.generator);
 			dy = h.random_frac(h.generator) - 0.5;
 		}
 
-		void reset_at_top(Hack& h) {
+		void reset_at_top(DriftingSnow& h) {
 			reset_common(h);
 			y = 0.0;
 			// Snow that's drifting in from the top doesn't start aimless; it
@@ -76,7 +81,7 @@ struct Hack {
 		}
 
 	private:
-		void reset_common(Hack& h) {
+		void reset_common(DriftingSnow& h) {
 			x = h.random_x(h.generator);
 			z = h.random_frac(h.generator);
 			dx = h.random_frac(h.generator) - 0.5;
@@ -87,11 +92,11 @@ struct Hack {
 			full_size = half_size * 2.0;*/
 		}
 	};
-	std::array<Snowflake, k_snowflake_count> snowflakes;
+	std::array<Snowflake, k_drifting_snowflake_count> snowflakes;
 
 	std::vector<double> breezes;
 
-	Hack(SDL_Surface* framebuffer)
+	DriftingSnow(SDL_Surface* framebuffer)
 		: fb(framebuffer),
 		random_x(0, framebuffer->w-1),
 		random_y(0, framebuffer->h-1),
@@ -106,7 +111,7 @@ struct Hack {
 		}
 	}
 
-	void simulate() {
+	void simulate() override {
 		// Modify breezes
 		// Put energy into system
 		int breeze_mod_y = random_y(generator);
@@ -163,12 +168,11 @@ struct Hack {
 			if(flake.y > fb->h) { flake.reset_at_top(*this); }
 		}
 	}
-	void render() {
+	void render() override {
 		// Dirty regions only work if we can unpaint previous snowflake
 		// positions, but separate simulate() makes that hard.
 		SDL_FillRect(fb, 0, greyscale[0]);
 		if(SDL_MUSTLOCK(fb)) { SDL_LockSurface(fb); }
-		//Uint8 bytespp = fb->format->BytesPerPixel;
 
 		for(auto&& flake : snowflakes) {
 			// We don't anti-alias.
@@ -181,27 +185,207 @@ struct Hack {
 				|| position.y < 0 || position.y >= fb->h)
 				{ continue; }
 			Uint32 color = greyscale[flake.brightness];
-			// TODO: This could be faster if hitting the pixel data raw.
 			SDL_FillRect(fb, &position, color);
-
-			/*Uint8* pixel = static_cast<Uint8*>(fb->pixels)
-				+ (position.x * bytespp)
-				+ (position.y * fb->pitch);
-			switch(bytespp) {
-				case 4:
-					pixel[3] = reinterpret_cast<Uint8*>(&color)[3];
-					pixel[2] = reinterpret_cast<Uint8*>(&color)[2];
-				case 2:
-					pixel[1] = reinterpret_cast<Uint8*>(&color)[1];
-				case 1:
-					pixel[0] = reinterpret_cast<Uint8*>(&color)[0];
-			}*/
 		}
 
 		if(SDL_MUSTLOCK(fb)) { SDL_UnlockSurface(fb); }
 		SDL_Flip(fb);
 	}
+
+	Uint32 tick_duration() override { return 100; } // 10Hz
 };
+
+// This one also expunges the floating point from DriftingSnow
+constexpr int k_physical_snowflake_count = 1024;
+struct PhysicalSnow : public Hack::Base {
+	SDL_Surface* fb;
+	std::default_random_engine generator;
+	std::uniform_int_distribution<int> random_x;
+	std::uniform_int_distribution<int> random_y;
+	std::uniform_int_distribution<int> random_delay_x;
+	std::uniform_int_distribution<int> random_delay_y;
+	std::uniform_int_distribution<int> random_delay_b;
+	std::uniform_int_distribution<int> random_delay_next_breeze;
+	std::uniform_int_distribution<int> random_coinflip;
+	std::uniform_int_distribution<int> random_mass;
+	std::array<Uint32, 256> greyscale;
+	std::vector<unsigned int> breeze_delay;
+	std::vector<int> breeze_sign;
+	unsigned int tick;
+	unsigned int next_breeze_in;
+
+	struct Snowflake {
+		Sint16 x, y, dx; // dx is sign only
+		// Inverse of dx/dy, i.e. how many ticks between each step.
+		// delay_t is the terminal velocity, the smallest delays can get.
+		unsigned int delay_x, delay_y, delay_t;
+		unsigned int mass;
+
+		void init(PhysicalSnow& h) {
+			reset_common(h);
+			y = h.random_y(h.generator);
+			delay_y = h.random_delay_y(h.generator);
+		}
+
+		void reset_at_top(PhysicalSnow& h) {
+			reset_common(h);
+			y = 0;
+		}
+
+	private:
+		void reset_common(PhysicalSnow& h) {
+			x = h.random_x(h.generator);
+			dx = h.random_coinflip(h.generator) == 1 ? 1 : -1;
+			delay_x = h.random_delay_x(h.generator);
+			mass = h.random_mass(h.generator);
+			delay_t = ((255-mass) / 25) + 1;
+		}
+	};
+	std::array<Snowflake, k_physical_snowflake_count> snowflakes;
+
+	PhysicalSnow(SDL_Surface* framebuffer)
+		: fb(framebuffer),
+		random_x(0, framebuffer->w-1),
+		random_y(0, framebuffer->h-1),
+		random_delay_x(1, 20),
+		random_delay_y(1, 10),
+		random_delay_b(1, 3),
+		random_delay_next_breeze(1, 20),
+		random_coinflip(0, 1),
+		random_mass(1, 255),
+		breeze_delay(framebuffer->h),
+		breeze_sign(framebuffer->h),
+		tick(0),
+		next_breeze_in(0) {
+
+		for(int i=0; i<256; ++i) {
+			greyscale[i] = SDL_MapRGB(fb->format, i, i, i);
+		}
+		for(auto&& flake : snowflakes) {
+			flake.init(*this);
+		}
+	}
+
+	void simulate() override {
+		// Modify breezes
+		if(next_breeze_in == 0) {
+			// Put energy into system
+			int breeze_mod_y = random_y(generator);
+			breeze_delay[breeze_mod_y] = random_delay_b(generator);
+			breeze_sign[breeze_mod_y] = random_coinflip(generator) == 1 ? 1 : -1;
+			next_breeze_in = random_delay_next_breeze(generator);
+		} else {
+			--next_breeze_in;
+		}
+		// Smooth them and lose energy
+		// TODO: not spreading downward very well, probably due to decay pass
+		for(int y=1; y<fb->h; ++y) {
+			//if(breeze_delay[y] % tick == 0) {
+				// Share influence with predecessor
+				if(breeze_sign[y-1] == breeze_sign[y]) {
+					if(breeze_sign[y] == 0) {
+						// Both lines are inactive.
+					} else if(breeze_delay[y-1] < breeze_delay[y]) {
+						++breeze_delay[y-1];
+						--breeze_delay[y];
+					} else if(breeze_delay[y-1] > breeze_delay[y]) {
+						--breeze_delay[y-1];
+						++breeze_delay[y];
+					}
+				} else {
+					// First, the cases where one line is stationary and picks
+					// up a very slow movement.
+					if(breeze_sign[y-1] == 0){
+						breeze_sign[y-1] = breeze_sign[y];
+						breeze_delay[y-1] = breeze_delay[y]
+							+ random_delay_b(generator) + 10;
+					} else if(breeze_sign[y] == 0){
+						breeze_sign[y] = breeze_sign[y-1];
+						breeze_delay[y] = breeze_delay[y-1]
+							+ random_delay_b(generator) + 10;
+					} else {
+						// Blowing in opposite directions on adjacent lines;
+						// damp both more heavily.
+						breeze_delay[y-1] += 2;
+						breeze_delay[y] += 2;
+					}
+				}
+				// Expire
+				if(breeze_sign[y] == 0) { continue; }
+				if(breeze_delay[y] > 100) { breeze_sign[y] = 0; }
+				// Decay
+				++breeze_delay[y];
+			//}
+		}
+
+		// Move flakes
+		for(auto&& flake : snowflakes) {
+			// Breezes
+			if(breeze_sign[flake.y] != 0 &&
+				tick % breeze_delay[flake.y] == 0) {
+				flake.x += breeze_sign[flake.y];
+				--flake.y;
+			}
+
+			// Momentum
+			if(tick % flake.delay_x == 0) {
+				flake.x += flake.dx;
+			}
+			if(tick % flake.delay_y == 0) {
+				++flake.y;
+				// Accellerate due to gravity up to terminal velocity
+				if(flake.delay_y > flake.delay_t) { --flake.delay_y; }
+			}
+
+			// Wrap horizontally
+			if(flake.x < 0) { flake.x += fb->w; }
+			if(flake.x >= fb->w) { flake.x -= fb->w; }
+
+			// Reset if out of bounds vertically
+			if(flake.y > fb->h) { flake.reset_at_top(*this); }
+		}
+		++tick;
+	}
+	void render() override {
+		// Dirty regions only work if we can unpaint previous snowflake
+		// positions, but separate simulate() makes that hard.
+		SDL_FillRect(fb, 0, greyscale[0]);
+		if(SDL_MUSTLOCK(fb)) { SDL_LockSurface(fb); }
+
+		// Debug breezes
+#ifdef DEBUG_BREEZES
+		for(int y=0; y<fb->h; ++y) {
+			if(breeze_sign[y] == 0) { continue; }
+			Uint8 d = std::max(static_cast<int>(255 - 2*breeze_delay[y]), 0);
+			SDL_Rect line { 0, static_cast<Sint16>(y),
+				static_cast<Uint16>(fb->w), 1};
+			Uint32 color;
+			if(breeze_sign[y] < 0) {
+				color = SDL_MapRGB(fb->format, d, 0, 255);
+			} else {
+				color = SDL_MapRGB(fb->format, 0, d, 255);
+			}
+			SDL_FillRect(fb, &line, color);
+		}
+#endif
+
+		for(auto&& flake : snowflakes) {
+			SDL_Rect position { flake.x, flake.y, 1, 1};
+			// Skip out of bounds.
+			if(position.x < 0 || position.x >= fb->w
+				|| position.y < 0 || position.y >= fb->h)
+				{ continue; }
+			Uint32 color = greyscale[flake.mass];
+			SDL_FillRect(fb, &position, color);
+		}
+
+		if(SDL_MUSTLOCK(fb)) { SDL_UnlockSurface(fb); }
+		SDL_Flip(fb);
+	}
+
+	Uint32 tick_duration() override { return 100; } // 10Hz
+};
+}; // namespace Hack
 
 // Drive the hack -------------------------------------------------------------
 // ("Hack" here being used in the same sense as xscreensaver: some neat code to
@@ -214,11 +398,12 @@ int main(int argc, char** argv) {
 	SDL_ShowCursor(0);
 #endif
 	SDL_Surface* fb = graphics.framebuffer;
-	std::cerr << static_cast<int>(fb->format->BytesPerPixel) << " bytes per pixel" << std::endl;
 	SDL_FillRect(fb, NULL, SDL_MapRGB(fb->format, 0x77, 0x77, 0x77));
 	SDL_Flip(fb);
 
-	Hack hack(fb);
+	std::unique_ptr<Hack::Base> hack;
+	//hack.reset(new Hack::DriftingSnow(fb));
+	hack.reset(new Hack::PhysicalSnow(fb));
 
 	Uint32 tickerror = 0;
 	Uint32 ticklast = SDL_GetTicks();
@@ -250,15 +435,15 @@ int main(int argc, char** argv) {
 			tickerror += (now - ticklast);
 			ticklast = now;
 		}
-		if(tickerror >= hack.tickduration) {
+		if(tickerror >= hack->tick_duration()) {
 			do {
-				tickerror -= hack.tickduration;
-				hack.simulate();
-			} while(tickerror >= hack.tickduration);
-			hack.render();
+				tickerror -= hack->tick_duration();
+				hack->simulate();
+			} while(tickerror >= hack->tick_duration());
+			hack->render();
 		} else {
 			/// Have a nap until we actually have at least one tick to run.
-			SDL_Delay(hack.tickduration);
+			SDL_Delay(hack->tick_duration());
 		}
 	}
 
