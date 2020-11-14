@@ -66,18 +66,27 @@ struct Hack {
 		//double half_size, full_size;
 
 		void init(Hack& h) {
-			reset_at_top(h);
+			reset_common(h);
 			y = h.random_y(h.generator);
+			dy = h.random_frac(h.generator) - 0.5;
 		}
 
 		void reset_at_top(Hack& h) {
-			x = h.random_x(h.generator);
+			reset_common(h);
 			y = 0.0;
+			// Snow that's drifting in from the top doesn't start aimless; it
+			// starts with momentum that's bringing it on-screen. We actually
+			// keep the previous momentum. (snow.js used to *only* reset y.)
+		}
+
+	private:
+		void reset_common(Hack& h) {
+			x = h.random_x(h.generator);
 			z = h.random_frac(h.generator);
 			dx = h.random_frac(h.generator) - 0.5;
-			dy = h.random_frac(h.generator) - 0.5;
 			// Brightness is taken from depth, rather than random like size.
-			brightness = std::ceil(255.0 * (1.0-z));
+			// High z is closer, thus brighter, because it's a multipler on d.
+			brightness = std::ceil(255.0 * z);
 			/*half_size = h.random_frac(h.generator) + 0.5;
 			full_size = half_size * 2.0;*/
 		}
@@ -178,12 +187,6 @@ struct Hack {
 		}
 
 		SDL_UpdateRect(fb, 0, 0, 0, 0);
-		/*SDL_Rect line = {
-			static_cast<Sint16>(random_x(generator)),
-			static_cast<Sint16>(random_y(generator)),
-			1, 1 };
-		SDL_FillRect(fb, &line, SDL_MapRGB(fb->format, 0xff, 0xff, 0xff));
-		SDL_UpdateRect(fb, line.x, line.y, 1, 1);*/
 	}
 };
 
