@@ -32,7 +32,8 @@ CPPFLAGSEX = $(CFLAGSEX)
 # LDFLAGSEX =
 
 # SOURCES ---------------------------------------------------------------------
-CPPSOURCES = pixmas.cpp
+CPPSOURCES = pixmas.cpp \
+             driftingsnowfp.cpp driftingsnowint.cpp
    HEADERS = hack.hpp
 # Anything else you want put in the distributed version
  EXTRADIST = Makefile README.md
