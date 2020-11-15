@@ -24,9 +24,9 @@ namespace Hack {
 	 * for the 100th time.They're not even runtime switchable at the
 	 * moment anyway. */
 
-	std::unique_ptr<Hack::Base> MakeDriftingSnowFP(SDL_Surface* framebuffer);
-	std::unique_ptr<Hack::Base> MakeDriftingSnowInt(SDL_Surface* framebuffer);
-	std::unique_ptr<Hack::Base> MakeDriftingSnowClock(SDL_Surface* framebuffer);
+	std::unique_ptr<Hack::Base> MakeSnowFP(SDL_Surface* framebuffer);
+	std::unique_ptr<Hack::Base> MakeSnowInt(SDL_Surface* framebuffer);
+	std::unique_ptr<Hack::Base> MakeSnowClock(SDL_Surface* framebuffer);
 };
 
 #endif

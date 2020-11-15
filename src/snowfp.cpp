@@ -165,7 +165,7 @@ struct DriftingSnow : public Hack::Base {
 	Uint32 tick_duration() override { return 100; } // 10Hz
 };
 
-std::unique_ptr<Hack::Base> MakeDriftingSnowFP(SDL_Surface* framebuffer) {
+std::unique_ptr<Hack::Base> MakeSnowFP(SDL_Surface* framebuffer) {
 	return std::make_unique<DriftingSnow>(framebuffer);
 }
 

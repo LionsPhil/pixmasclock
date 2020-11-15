@@ -1,8 +1,6 @@
-/* Drifting snow, integer version.
- * This is a port of the floating point version to use tick delays instead of
- * fractional velocities, which means it can be pure integer arithmetic and
- * run a little faster, which is used to generate four times as many snowflakes
- * for about the same performance.
+/* Drifting snow, collecting upon a digital clock.
+ * This is built upon (but does not inherit code in any clever way from) the
+ * integer version of drifting snow.
  */
 
 #include <cmath>
@@ -18,7 +16,7 @@
 constexpr int k_snowflake_count = 4096;
 
 namespace Hack {
-struct DriftingSnowInt : public Hack::Base {
+struct SnowClock : public Hack::Base {
 	SDL_Surface* fb;
 	std::default_random_engine generator;
 	std::uniform_int_distribution<int> random_x;
@@ -43,13 +41,13 @@ struct DriftingSnowInt : public Hack::Base {
 		unsigned int delay_x, delay_y, delay_t;
 		unsigned int mass;
 
-		void init(DriftingSnowInt& h) {
+		void init(SnowClock& h) {
 			reset_common(h);
 			y = h.random_y(h.generator);
 			delay_y = h.random_delay_y(h.generator);
 		}
 
-		void reset_at_top(DriftingSnowInt& h) {
+		void reset_at_top(SnowClock& h) {
 			reset_common(h);
 			y = 0;
 			// Stop things getting too lockstep.
@@ -58,7 +56,7 @@ struct DriftingSnowInt : public Hack::Base {
 		}
 
 	private:
-		void reset_common(DriftingSnowInt& h) {
+		void reset_common(SnowClock& h) {
 			x = h.random_x(h.generator);
 			dx = h.random_coinflip(h.generator) == 1 ? 1 : -1;
 			delay_x = h.random_delay_x(h.generator);
@@ -68,7 +66,7 @@ struct DriftingSnowInt : public Hack::Base {
 	};
 	std::array<Snowflake, k_snowflake_count> snowflakes;
 
-	DriftingSnowInt(SDL_Surface* framebuffer)
+	SnowClock(SDL_Surface* framebuffer)
 		: fb(framebuffer),
 		random_x(0, framebuffer->w-1),
 		random_y(0, framebuffer->h-1),
@@ -256,8 +254,8 @@ struct DriftingSnowInt : public Hack::Base {
 	Uint32 tick_duration() override { return 100; } // 10Hz
 };
 
-std::unique_ptr<Hack::Base> MakeDriftingSnowInt(SDL_Surface* framebuffer) {
-	return std::make_unique<DriftingSnowInt>(framebuffer);
+std::unique_ptr<Hack::Base> MakeSnowClock(SDL_Surface* framebuffer) {
+	return std::make_unique<SnowClock>(framebuffer);
 }
 
 }; // namespace Hack
