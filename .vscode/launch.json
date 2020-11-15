@@ -22,7 +22,7 @@
 					"ignoreFailures": true
 				}
 			],
-			"preLaunchTask": "C/C++: clang++ build active file",
+			"preLaunchTask": "Make project",
 		},
 		/*   https://github.com/microsoft/vscode-cpptools/issues/5415 -- sigh
 		{

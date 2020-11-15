@@ -1,3 +1,7 @@
+## Building
+
+You want Debian/Rapsbian packages `clang libsdl1.2-dev`.
+
 ## Running on the Pi
 
 For the Tontec GPIO display:

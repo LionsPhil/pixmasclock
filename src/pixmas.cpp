@@ -10,6 +10,8 @@
 
 #include <SDL.h>
 
+#include "hack.hpp"
+
 // This is just used to get SDL init/deinit via RAII for nice error handling --
 namespace SDL {
 	struct Error : public std::exception {
@@ -22,7 +24,9 @@ namespace SDL {
 
 		Graphics() {
 			if(SDL_Init(SDL_INIT_VIDEO) != 0) { throw Error(); }
+#ifndef DESKTOP
 			auto video_info = SDL_GetVideoInfo();
+#endif
 			framebuffer = SDL_SetVideoMode(
 #ifdef DESKTOP
 				// This is the resolution of the Tontec GPIO display.
@@ -39,17 +43,7 @@ namespace SDL {
 	};
 };
 
-// Graphical hack interface ---------------------------------------------------
-// (yeah yeah separate files, I CBA to wrassle VScode vs Makefiles right now)
-
 namespace Hack {
-struct Base {
-	virtual ~Base() {}
-	virtual void simulate() = 0;
-	virtual void render() = 0;
-	virtual Uint32 tick_duration() = 0;
-};
-
 constexpr int k_drifting_snowflake_count = 1024;
 struct DriftingSnow : public Hack::Base {
 	SDL_Surface* fb;
@@ -139,7 +133,7 @@ struct DriftingSnow : public Hack::Base {
 
 			// Accellerate to match breeze, gain lift from it
 			int flake_int_y = std::round(flake.y);
-			if(flake_int_y >=0 && flake_int_y < breezes.size()) {
+			if(flake_int_y >=0 && flake_int_y < fb->h) {
 				double breeze = breezes[flake_int_y];
 				double breeze_abs = std::abs(breeze);
 				if(breeze < flake.dx) {
