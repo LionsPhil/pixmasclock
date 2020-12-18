@@ -81,6 +81,7 @@ struct SnowClock : public Hack::Base {
 	public:
 		StaticSnow(int w, int h) : w_(w), h_(h) {
 			snow_.resize(w_ * h_);
+			//for(int y=50; y<h_-50; ++y) { at(50,y)=255; } // DEBUG
 		}
 
 		Uint8& at(int x, int y) {
@@ -95,29 +96,50 @@ struct SnowClock : public Hack::Base {
 			}
 		}
 
+		// Flow as much snow as possible from 'from' to 'to' without overflow.
+		static void flow(Uint8& from, Uint8& to) {
+			int total = from + to;
+			to = std::min(255, total);
+			from = total - to;
+		}
+
 		void simulate() {
-			// Angle of repose check, which works inside U-shaped bounds
-			// FIXME: For some reason the *loop* here is being stupidly
-			// expensive, even though we get away with the same elsewhere.
-			// We can do this over and over in render() without problem. :/
-			for(int y = 0; y < h_-1; ++y) {
-				for(int x = 1; x < w_-1; ++x) {
+			// The bottom row of snow is always completely static once formed.
+			// We continue once *something* has happened to the snow here, so it
+			// only gets one change per tick.
+			for(int y = h_-2; y > 0; --y) { // bottom-up makes falling natural
+				for(int x = 0; x < w_; ++x) {
 					Uint8& here = at(x, y);
 					if(here > 0) {
-						Uint8& down_left = at(x-1, y+1);
-						Uint8& down_right = at(x+1, y+1);
-						if(down_left == 0) {
-							if(down_right == 0) {
-								// Split
-								down_left = here/2;
-								down_right = here/2;
-							} else {
-								// Spill left
-								down_left = here;
+						// Fall check
+						// (An alternative would be to respawn them as flakes)
+						Uint8& down = at(x, y+1);
+						if(down < here) {
+							flow(here, down);
+							continue;
+						}
+
+						// Angle of repose check, must be away from walls
+						if(x > 0 && x < w_-1) {
+							Uint8& down_left = at(x-1, y+1);
+							Uint8& down_right = at(x+1, y+1);
+							if(down_left < here) {
+								if(down_right < here) {
+									// Split, 3-way flow
+									int total = down_left + down_right + here;
+									down_left = std::min(255, total/2);
+									down_right = std::min(255, total/2);
+									here = total - (down_left + down_right);
+								} else {
+									// Spill left
+									flow(here, down_left);
+								}
+								continue;
+							} else if (down_right < here) {
+								// Spill right
+								flow(here, down_right);
+								continue;
 							}
-						} else if (down_right == 0) {
-							// Spill right
-							down_right = here;
 						}
 					}
 				}
@@ -256,10 +278,9 @@ struct SnowClock : public Hack::Base {
 				// Respawn
 				flake.reset_at_top(*this);
 			}
-
-			// Simulate the static snow
-			//static_snow.simulate(); // DISABLED for murdering performance :c
 		}
+		// Simulate the static snow
+		static_snow.simulate();
 		++tick;
 	}
 	void render() override {
@@ -299,6 +320,9 @@ struct SnowClock : public Hack::Base {
 			}
 		}
 
+		// TODO I think some of the flickering might be that flakes of lower
+		// brightness passing in front of others. Try compositing into a 8-bit
+		// image so we can just additive blend these already.
 		for(auto&& flake : snowflakes) {
 			// Skip out of bounds.
 			if(flake.x < 0 || flake.x >= w
