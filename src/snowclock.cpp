@@ -13,11 +13,16 @@
 
 #include "hack.hpp"
 
-constexpr int k_snowflake_count = 4096;
+/* Unfortunately, even with the extra buffering, 4K is flickery on real
+ * hardware. I'm not really sure why. */
+constexpr int k_snowflake_count = 2048;
 
 namespace Hack {
 struct SnowClock : public Hack::Base {
 	SDL_Surface* fb;
+	// Manual double-buffering, because on fbdev it doesn't seem to work, and
+	// also we want to write raw in a known pixel format rather than FillRect.
+	std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> fb2;
 	std::default_random_engine generator;
 	std::uniform_int_distribution<int> random_x;
 	std::uniform_int_distribution<int> random_y;
@@ -68,6 +73,7 @@ struct SnowClock : public Hack::Base {
 
 	SnowClock(SDL_Surface* framebuffer)
 		: fb(framebuffer),
+		fb2(nullptr, SDL_FreeSurface),
 		random_x(0, framebuffer->w-1),
 		random_y(0, framebuffer->h-1),
 		random_delay_x(1, 20),
@@ -82,15 +88,23 @@ struct SnowClock : public Hack::Base {
 		next_breeze_in(0),
 		static_snow(framebuffer->w * framebuffer->h) {
 
+		/* Making SDL format-convert means we don't have to at write time, and
+		 * can just slap down 32-bit values. */
+		fb2.reset(SDL_CreateRGBSurface(SDL_SWSURFACE | SDL_ASYNCBLIT,
+			fb->w, fb->h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000));
+		if(fb2.get() == nullptr) {
+			throw std::bad_alloc();
+		}
+
 		for(int i=0; i<256; ++i) {
-			greyscale[i] = SDL_MapRGB(fb->format, i, i, i);
+			greyscale[i] = SDL_MapRGB(fb2->format, i, i, i);
 		}
 		for(auto&& flake : snowflakes) {
 			flake.init(*this);
 		}
 	}
 
-	int ss_at(int x, int y) { return x + fb->w * y; }
+//	int ss_at(int x, int y) { return x + fb->w * y; }
 
 	void simulate() override {
 		// Modify breezes
@@ -199,34 +213,34 @@ struct SnowClock : public Hack::Base {
 	void render() override {
 		// Dirty regions only work if we can unpaint previous snowflake
 		// positions, but separate simulate() makes that hard.
-		SDL_FillRect(fb, 0, greyscale[0]);
-		if(SDL_MUSTLOCK(fb)) { SDL_LockSurface(fb); }
+		SDL_FillRect(fb2.get(), nullptr, greyscale[0]);
+		if(SDL_MUSTLOCK(fb2.get())) { SDL_LockSurface(fb2.get()); }
 
 		// Debug breezes
 #ifdef DEBUG_BREEZES
-		for(int y=0; y<fb->h; ++y) {
+		for(int y=0; y<fb2->h; ++y) {
 			if(breeze_sign[y] == 0) { continue; }
 			Uint8 d = std::max(static_cast<int>(255 - 2*breeze_delay[y]), 0);
 			SDL_Rect line { 0, static_cast<Sint16>(y),
-				static_cast<Uint16>(fb->w), 1};
+				static_cast<Uint16>(fb2->w), 1};
 			Uint32 color;
 			if(breeze_sign[y] < 0) {
-				color = SDL_MapRGB(fb->format, d, 0, 255);
+				color = SDL_MapRGB(fb2->format, d, 0, 255);
 			} else {
-				color = SDL_MapRGB(fb->format, 0, d, 255);
+				color = SDL_MapRGB(fb2->format, 0, d, 255);
 			}
-			SDL_FillRect(fb, &line, color);
+			SDL_FillRect(fb2, &line, color);
 		}
 #endif
 
 #ifdef STATIC_SNOW
 		int i = 0;
-		for(Sint16 y=0; y<fb->h; ++y) {
-			for(Sint16 x=0; x<fb->w; ++x) {
+		for(Sint16 y=0; y<fb2->h; ++y) {
+			for(Sint16 x=0; x<fb2->w; ++x) {
 				++i;
 				if(static_snow[i]>0) {
 					SDL_Rect position { x, y, 1, 1};
-					SDL_FillRect(fb, &position, greyscale[static_snow[i]]);
+					SDL_FillRect(fb2.get(), &position, greyscale[static_snow[i]]);
 				}
 			}
 		}
@@ -235,8 +249,8 @@ struct SnowClock : public Hack::Base {
 		for(auto&& flake : snowflakes) {
 			SDL_Rect position { flake.x, flake.y, 1, 1};
 			// Skip out of bounds.
-			if(position.x < 0 || position.x >= fb->w
-				|| position.y < 0 || position.y >= fb->h)
+			if(position.x < 0 || position.x >= fb2->w
+				|| position.y < 0 || position.y >= fb2->h)
 				{ continue; }
 #ifdef STATIC_SNOW
 			unsigned int bright = std::min(255u,
@@ -244,10 +258,11 @@ struct SnowClock : public Hack::Base {
 #else
 			unsigned int bright = flake.mass;
 #endif
-			SDL_FillRect(fb, &position, greyscale[bright]);
+			SDL_FillRect(fb2.get(), &position, greyscale[bright]);
 		}
 
-		if(SDL_MUSTLOCK(fb)) { SDL_UnlockSurface(fb); }
+		if(SDL_MUSTLOCK(fb2.get())) { SDL_UnlockSurface(fb2.get()); }
+		SDL_BlitSurface(fb2.get(), nullptr, fb, nullptr);
 		SDL_Flip(fb);
 	}
 
