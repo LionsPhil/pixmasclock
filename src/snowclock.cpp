@@ -37,7 +37,6 @@ struct SnowClock : public Hack::Base {
 	std::vector<int> breeze_sign;
 	unsigned int tick;
 	unsigned int next_breeze_in;
-	std::vector<Uint8> static_snow;
 
 	struct Snowflake {
 		Sint16 x, y, dx; // dx is sign only
@@ -71,6 +70,62 @@ struct SnowClock : public Hack::Base {
 	};
 	std::array<Snowflake, k_snowflake_count> snowflakes;
 
+	class StaticSnow {
+		std::vector<Uint8> snow_;
+		int w_, h_;
+		/* Dummy value for silenly allowing accesses outside the bounds, instead
+		 * of needing lots of perfect defensive coding when looking at adjacent
+		 * pixels (that will have to invent a value on read anyway). This isn't
+		 * threadsafe, but we're not threaded. */
+		Uint8 out_of_bounds_;
+	public:
+		StaticSnow(int w, int h) : w_(w), h_(h) {
+			snow_.resize(w_ * h_);
+		}
+
+		Uint8& at(int x, int y) {
+			if(x < 0 || x >= w_ || y < 0 || y >= h_) {
+				out_of_bounds_ = 0; // In case garbage was written previously.
+				return out_of_bounds_;
+			} else {
+				// Since we've done our own bounds check, and we size this
+				// precisely once in the c'tor and *shouldn't* screw that up,
+				// use unsafe operator[] instead of at() to skip doing it again.
+				return snow_[x + (y*w_)];
+			}
+		}
+
+		void simulate() {
+			// Angle of repose check, which works inside U-shaped bounds
+			// FIXME: For some reason the *loop* here is being stupidly
+			// expensive, even though we get away with the same elsewhere.
+			// We can do this over and over in render() without problem. :/
+			for(int y = 0; y < h_-1; ++y) {
+				for(int x = 1; x < w_-1; ++x) {
+					Uint8& here = at(x, y);
+					if(here > 0) {
+						Uint8& down_left = at(x-1, y+1);
+						Uint8& down_right = at(x+1, y+1);
+						if(down_left == 0) {
+							if(down_right == 0) {
+								// Split
+								down_left = here/2;
+								down_right = here/2;
+							} else {
+								// Spill left
+								down_left = here;
+							}
+						} else if (down_right == 0) {
+							// Spill right
+							down_right = here;
+						}
+					}
+				}
+			}
+		}
+	};
+	StaticSnow static_snow;
+
 	SnowClock(SDL_Surface* framebuffer)
 		: fb(framebuffer),
 		fb2(nullptr, SDL_FreeSurface),
@@ -86,7 +141,7 @@ struct SnowClock : public Hack::Base {
 		breeze_sign(framebuffer->h),
 		tick(0),
 		next_breeze_in(0),
-		static_snow(framebuffer->w * framebuffer->h) {
+		static_snow(framebuffer->w, framebuffer->h) {
 
 		/* Making SDL format-convert means we don't have to at write time, and
 		 * can just slap down 32-bit values. */
@@ -103,8 +158,6 @@ struct SnowClock : public Hack::Base {
 			flake.init(*this);
 		}
 	}
-
-//	int ss_at(int x, int y) { return x + fb->w * y; }
 
 	void simulate() override {
 		// Modify breezes
@@ -181,40 +234,45 @@ struct SnowClock : public Hack::Base {
 			if(flake.x < 0) { flake.x += fb->w; }
 			if(flake.x >= fb->w) { flake.x -= fb->w; }
 
-#ifdef STATIC_SNOW
 			// Collide and collect with static snow/bottom of screen
-			if(flake.y > fb->h) {
-				int mass = static_snow[ss_at(flake.x, fb->h-1)] + flake.mass;
+			if(flake.y >= fb->h) {
+				int mass = static_snow.at(flake.x, fb->h-1) + flake.mass;
 				if(mass > 255) {
-					static_snow[ss_at(flake.x, fb->h-2)] = mass - 255;
+					static_snow.at(flake.x, fb->h-2) = mass - 255;
 					mass = 255;
 				}
-				static_snow[ss_at(flake.x, fb->h-1)] = mass;
+				static_snow.at(flake.x, fb->h-1) = mass;
 				// Respawn
 				flake.reset_at_top(*this);
-			} else if(static_snow[ss_at(flake.x, flake.y)] > 0) {
-				int mass = static_snow[ss_at(flake.x, flake.y)] + flake.mass;
+			} else if(static_snow.at(flake.x, flake.y) > 0) {
+				int mass = static_snow.at(flake.x, flake.y) + flake.mass;
 				if(mass > 255) {
 					if(flake.y > 0) {
-						static_snow[ss_at(flake.x, flake.y-1)] = mass - 255;
+						static_snow.at(flake.x, flake.y-1) = mass - 255;
 					}
 					mass = 255;
 				}
-				static_snow[ss_at(flake.x, flake.y)] = mass;
+				static_snow.at(flake.x, flake.y) = mass;
 				// Respawn
 				flake.reset_at_top(*this);
 			}
-#else
-			if(flake.y > fb->h) { flake.reset_at_top(*this); }
-#endif
+
+			// Simulate the static snow
+			//static_snow.simulate(); // DISABLED for murdering performance :c
 		}
 		++tick;
 	}
 	void render() override {
 		// Dirty regions only work if we can unpaint previous snowflake
 		// positions, but separate simulate() makes that hard.
-		SDL_FillRect(fb2.get(), nullptr, greyscale[0]);
+		int w = fb2->w;
+		int h = fb2->h;
 		if(SDL_MUSTLOCK(fb2.get())) { SDL_LockSurface(fb2.get()); }
+		SDL_FillRect(fb2.get(), nullptr, greyscale[0]);
+		char* fb2_pixels = reinterpret_cast<char*>(fb2.get()->pixels);
+		auto setpixel = [&](Sint16 x, Sint16 y, Uint32 c){
+			*reinterpret_cast<Uint32*>(fb2_pixels + (x*4) + (y*fb2->pitch)) = c;
+		};
 
 		// Debug breezes
 #ifdef DEBUG_BREEZES
@@ -229,36 +287,26 @@ struct SnowClock : public Hack::Base {
 			} else {
 				color = SDL_MapRGB(fb2->format, 0, d, 255);
 			}
-			SDL_FillRect(fb2, &line, color);
+			SDL_FillRect(fb2.get(), &line, color);
 		}
 #endif
 
-#ifdef STATIC_SNOW
-		int i = 0;
-		for(Sint16 y=0; y<fb2->h; ++y) {
-			for(Sint16 x=0; x<fb2->w; ++x) {
-				++i;
-				if(static_snow[i]>0) {
-					SDL_Rect position { x, y, 1, 1};
-					SDL_FillRect(fb2.get(), &position, greyscale[static_snow[i]]);
+		for(Sint16 y=0; y<h; ++y) {
+			for(Sint16 x=0; x<w; ++x) {
+				if(static_snow.at(x, y)>0) {
+					setpixel(x, y, greyscale[static_snow.at(x, y)]);
 				}
 			}
 		}
-#endif
 
 		for(auto&& flake : snowflakes) {
-			SDL_Rect position { flake.x, flake.y, 1, 1};
 			// Skip out of bounds.
-			if(position.x < 0 || position.x >= fb2->w
-				|| position.y < 0 || position.y >= fb2->h)
+			if(flake.x < 0 || flake.x >= w
+				|| flake.y < 0 || flake.y >= h)
 				{ continue; }
-#ifdef STATIC_SNOW
 			unsigned int bright = std::min(255u,
-				flake.mass + static_snow[ss_at(flake.x, flake.y)]);
-#else
-			unsigned int bright = flake.mass;
-#endif
-			SDL_FillRect(fb2.get(), &position, greyscale[bright]);
+				flake.mass + static_snow.at(flake.x, flake.y));
+			setpixel(flake.x, flake.y, greyscale[bright]);
 		}
 
 		if(SDL_MUSTLOCK(fb2.get())) { SDL_UnlockSurface(fb2.get()); }

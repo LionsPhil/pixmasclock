@@ -23,7 +23,7 @@ PRINTF = printf
 
 # Extra flags to control build type
 # Debugging:
-  CFLAGSEX = -g -O
+  CFLAGSEX = -g
 CPPFLAGSEX = $(CFLAGSEX)
  LDFLAGSEX =
 # Release:
@@ -51,7 +51,7 @@ ALLSOURCESMANU = $(SOURCES) $(HEADERS)
 
 # Compiler warning flags
 WARNFLAGS = -Werror -W -Wall -Wpointer-arith -Wcast-align -Wwrite-strings \
-            -Wno-unused-parameter -Wuninitialized -Wno-unknown-pragmas
+            -Wno-unused-parameter -Wuninitialized
 CPPWFLAGS = $(WARNFLAGS)
 
 # Tool flags

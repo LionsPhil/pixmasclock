@@ -28,7 +28,7 @@ namespace SDL {
 #else
 				video_info->current_w, video_info->current_h,
 #endif
-				0, SDL_SWSURFACE | SDL_DOUBLEBUF);
+				0, 0 /*| SDL_SWSURFACE | SDL_DOUBLEBUF*/);
 			if(framebuffer == nullptr) { throw Error(); }
 		}
 		~Graphics() {
