@@ -138,9 +138,12 @@ struct SnowInt : public Hack::Base {
 				}
 				// Expire
 				if(breeze_sign[y] == 0) { continue; }
-				if(breeze_delay[y] > 100) { breeze_sign[y] = 0; }
-				// Decay
-				++breeze_delay[y];
+				if(breeze_delay[y] > 100) {
+						breeze_sign[y] = 0;
+				} else {
+					// Decay
+					++breeze_delay[y];
+				}
 			//}
 		}
 
