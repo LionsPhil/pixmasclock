@@ -151,7 +151,8 @@ struct SnowInt : public Hack::Base {
 		// Move flakes
 		for(auto&& flake : snowflakes) {
 			// Breezes
-			if(breeze_sign[flake.y] != 0 &&
+			if(flake.y >= 0 && flake.y < fb->h &&
+				breeze_sign[flake.y] != 0 &&
 				tick % breeze_delay[flake.y] == 0) {
 				flake.x += breeze_sign[flake.y];
 				--flake.y;
