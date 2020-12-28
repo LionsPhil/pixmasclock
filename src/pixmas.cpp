@@ -1,5 +1,6 @@
 // Blah blah Philip Boulain blah copyright blah 2020 blah 3-CLAUSE BSD LICENSE
 #include <exception>
+#include <iostream>
 #include <memory>
 
 #include <SDL.h>
@@ -84,6 +85,14 @@ int main(int argc, char** argv) {
 			ticklast = now;
 		}
 		if(tickerror >= hack->tick_duration()) {
+			if(tickerror > hack->tick_duration() * 10) {
+				static bool once = false;
+				if(!once) {
+					std::cerr << "Running too slow! Skipping ticks!" << std::endl;
+					once = true;
+				}
+				tickerror = hack->tick_duration();
+			}
 			do {
 				tickerror -= hack->tick_duration();
 				hack->simulate();
