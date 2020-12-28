@@ -82,7 +82,7 @@ struct SnowClock : public Hack::Base {
 		StaticSnow(int w, int h) : w_(w), h_(h) {
 			snow_.resize(w_ * h_);
 			//for(int y=50; y<h_-50; ++y) { at(50,y)=255; } // DEBUG
-			//for(int x=0; x<w; ++x) { for(int y=10; y<h_-10; ++y) { at(x,y)=255; }} // DEBUG
+			//for(int x=0; x<w; ++x) { for(int y=10; y<h; ++y) { at(x,y)=255; }} // DEBUG
 		}
 
 		Uint8& at(int x, int y) {
@@ -108,7 +108,7 @@ struct SnowClock : public Hack::Base {
 			// The bottom row of snow is always completely static once formed.
 			// We continue once *something* has happened to the snow here, so it
 			// only gets one change per tick.
-			for(int y = 1; y < h_-1; ++y) {
+			for(int y = h_-2; y >= 0; --y) { // bottom-up makes falling natural
 				for(int x = 0; x < w_; ++x) {
 					Uint8& here = at(x, y);
 					if(here > 0) {
@@ -121,6 +121,7 @@ struct SnowClock : public Hack::Base {
 						}
 
 						// Angle of repose check, must be away from walls
+						// FIXME The left->right sweep means we spill left-biased anyway
 						if(x > 0 && x < w_-1) {
 							Uint8& down_left = at(x-1, y+1);
 							Uint8& down_right = at(x+1, y+1);
@@ -141,6 +142,22 @@ struct SnowClock : public Hack::Base {
 								flow(here, down_right);
 								continue;
 							}
+						}
+					}
+				}
+			}
+			// Filled columns? Nuke some settled from the bottom
+			for(int col = 0; col < w_; ++col) {
+				if(at(col, 0) == 255) {
+					int qh = h_/4;
+					for(int x = std::max(0, col-qh); x < std::min(w_, col+qh); ++x) {
+						int remove = (qh - std::abs(x-col)) * 256;// random_mass(generator);
+						for(int y = h_-1; y >= 0 && remove > 0; --y) {
+							Uint8& here = at(x, y);
+							Uint8 was_here = here;
+							if(was_here == 0) { break; }
+							here -= std::min(static_cast<int>(was_here), remove);
+							remove -= was_here;
 						}
 					}
 				}
@@ -285,24 +302,6 @@ struct SnowClock : public Hack::Base {
 				static_snow.at(flake.x, flake.y) = mass;
 				// Respawn
 				flake.reset_at_top(*this);
-				// Filled column? Nuke some settled from the bottom
-				/*if(flake.y == 0) {
-					int qh = fb->h/4;
-					for(int x = std::max(0, flake.x-qh); x < std::min(fb->w, flake.x+qh); ++x) {
-						int remove = qh-x * random_mass(generator);
-						for(int y = fb->h-1; y >= 0 && remove > 0; --y) {
-							auto here = static_snow.at(x, y);
-							if(here == 0) { break; }
-							if(remove < here) {
-								here -= remove;
-							} else {
-								here = 0;
-							}
-							remove -= here;
-							static_snow.at(x, y) = here;
-						}
-					}
-				}*/ // FIXME
 			}
 		}
 		// Simulate the static snow
