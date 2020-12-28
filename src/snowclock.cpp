@@ -230,15 +230,21 @@ struct SnowClock : public Hack::Base {
 				// Expire
 				if(breeze_sign[y] == 0) { continue; }
 				if(breeze_delay[y] > 100) { breeze_sign[y] = 0; }
-				// Decay
-				++breeze_delay[y];
+				if (breeze_delay[y] > 100) {
+					breeze_sign[y] = 0;
+					breeze_delay[y] = 100;
+				} else {
+					// Decay
+					++breeze_delay[y];
+				}
 			//}
 		}
 
 		// Move flakes
 		for(auto&& flake : snowflakes) {
 			// Breezes
-			if(breeze_sign[flake.y] != 0 &&
+			if(flake.y >= 0 && flake.y < fb->h &&
+				breeze_sign[flake.y] != 0 &&
 				tick % breeze_delay[flake.y] == 0) {
 				flake.x += breeze_sign[flake.y];
 				--flake.y;
