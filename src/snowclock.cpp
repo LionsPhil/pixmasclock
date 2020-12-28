@@ -82,6 +82,7 @@ struct SnowClock : public Hack::Base {
 		StaticSnow(int w, int h) : w_(w), h_(h) {
 			snow_.resize(w_ * h_);
 			//for(int y=50; y<h_-50; ++y) { at(50,y)=255; } // DEBUG
+			//for(int x=0; x<w; ++x) { for(int y=10; y<h_-10; ++y) { at(x,y)=255; }} // DEBUG
 		}
 
 		Uint8& at(int x, int y) {
@@ -107,7 +108,7 @@ struct SnowClock : public Hack::Base {
 			// The bottom row of snow is always completely static once formed.
 			// We continue once *something* has happened to the snow here, so it
 			// only gets one change per tick.
-			for(int y = h_-2; y > 0; --y) { // bottom-up makes falling natural
+			for(int y = 1; y < h_-1; ++y) {
 				for(int x = 0; x < w_; ++x) {
 					Uint8& here = at(x, y);
 					if(here > 0) {
@@ -194,6 +195,7 @@ struct SnowClock : public Hack::Base {
 		}
 		// Smooth them and lose energy
 		// TODO: not spreading downward very well, probably due to decay pass
+		// FIXME migrate fixes from snowint
 		for(int y=1; y<fb->h; ++y) {
 			//if(breeze_delay[y] % tick == 0) {
 				// Share influence with predecessor
@@ -277,6 +279,24 @@ struct SnowClock : public Hack::Base {
 				static_snow.at(flake.x, flake.y) = mass;
 				// Respawn
 				flake.reset_at_top(*this);
+				// Filled column? Nuke some settled from the bottom
+				/*if(flake.y == 0) {
+					int qh = fb->h/4;
+					for(int x = std::max(0, flake.x-qh); x < std::min(fb->w, flake.x+qh); ++x) {
+						int remove = qh-x * random_mass(generator);
+						for(int y = fb->h-1; y >= 0 && remove > 0; --y) {
+							auto here = static_snow.at(x, y);
+							if(here == 0) { break; }
+							if(remove < here) {
+								here -= remove;
+							} else {
+								here = 0;
+							}
+							remove -= here;
+							static_snow.at(x, y) = here;
+						}
+					}
+				}*/ // FIXME
 			}
 		}
 		// Simulate the static snow
