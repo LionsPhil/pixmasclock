@@ -13,16 +13,14 @@
 
 #include "hack.hpp"
 
-/* Unfortunately, even with the extra buffering, 4K is flickery on real
- * hardware. I'm not really sure why. */
-constexpr int k_snowflake_count = 2048;
+constexpr int k_snowflake_count = 1024 * 4;
 
 namespace Hack {
 struct SnowClock : public Hack::Base {
 	SDL_Surface* fb;
-	// Manual double-buffering, because on fbdev it doesn't seem to work, and
-	// also we want to write raw in a known pixel format rather than FillRect.
-	std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> fb2;
+	// Build up the snow on a greyscale surface for buffering, and also we want
+	// to write raw in a known pixel format rather than FillRect.
+	std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> snowfb;
 	std::default_random_engine generator;
 	std::uniform_int_distribution<int> random_x;
 	std::uniform_int_distribution<int> random_y;
@@ -32,7 +30,6 @@ struct SnowClock : public Hack::Base {
 	std::uniform_int_distribution<int> random_delay_next_breeze;
 	std::uniform_int_distribution<int> random_coinflip;
 	std::uniform_int_distribution<int> random_mass;
-	std::array<Uint32, 256> greyscale;
 	std::vector<unsigned int> breeze_delay;
 	std::vector<int> breeze_sign;
 	unsigned int tick;
@@ -168,7 +165,7 @@ struct SnowClock : public Hack::Base {
 
 	SnowClock(SDL_Surface* framebuffer)
 		: fb(framebuffer),
-		fb2(nullptr, SDL_FreeSurface),
+		snowfb(nullptr, SDL_FreeSurface),
 		random_x(0, framebuffer->w-1),
 		random_y(0, framebuffer->h-1),
 		random_delay_x(1, 20),
@@ -185,15 +182,22 @@ struct SnowClock : public Hack::Base {
 
 		/* Making SDL format-convert means we don't have to at write time, and
 		 * can just slap down 32-bit values. */
-		fb2.reset(SDL_CreateRGBSurface(SDL_SWSURFACE | SDL_ASYNCBLIT,
-			fb->w, fb->h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000));
-		if(fb2.get() == nullptr) {
+		snowfb.reset(SDL_CreateRGBSurface(SDL_SWSURFACE | SDL_ASYNCBLIT,
+			fb->w, fb->h, 8, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000));
+		if(snowfb.get() == nullptr) {
 			throw std::bad_alloc();
 		}
 
+		struct SDL_Color greys[256];
 		for(int i=0; i<256; ++i) {
-			greyscale[i] = SDL_MapRGB(fb2->format, i, i, i);
+			greys[i] = {
+				static_cast<Uint8>(i), static_cast<Uint8>(i), static_cast<Uint8>(i),
+				0 };
 		}
+		if(SDL_SetColors(snowfb.get(), greys, 0, 256) != 1) {
+			throw std::runtime_error("failed to set snow palette");
+		}
+
 		for(auto&& flake : snowflakes) {
 			flake.init(*this);
 		}
@@ -311,13 +315,13 @@ struct SnowClock : public Hack::Base {
 	void render() override {
 		// Dirty regions only work if we can unpaint previous snowflake
 		// positions, but separate simulate() makes that hard.
-		int w = fb2->w;
-		int h = fb2->h;
-		if(SDL_MUSTLOCK(fb2.get())) { SDL_LockSurface(fb2.get()); }
-		SDL_FillRect(fb2.get(), nullptr, greyscale[0]);
-		char* fb2_pixels = reinterpret_cast<char*>(fb2.get()->pixels);
-		auto setpixel = [&](Sint16 x, Sint16 y, Uint32 c){
-			*reinterpret_cast<Uint32*>(fb2_pixels + (x*4) + (y*fb2->pitch)) = c;
+		int w = snowfb->w;
+		int h = snowfb->h;
+		if(SDL_MUSTLOCK(snowfb.get())) { SDL_LockSurface(snowfb.get()); }
+		SDL_FillRect(snowfb.get(), nullptr, 0);
+		Uint8* fb2_pixels = reinterpret_cast<Uint8*>(snowfb.get()->pixels);
+		auto pixel_at = [&](Sint16 x, Sint16 y){
+			return (fb2_pixels + x + (y*snowfb->pitch));
 		};
 
 		// Debug breezes
@@ -340,26 +344,23 @@ struct SnowClock : public Hack::Base {
 		for(Sint16 y=0; y<h; ++y) {
 			for(Sint16 x=0; x<w; ++x) {
 				if(static_snow.at(x, y)>0) {
-					setpixel(x, y, greyscale[static_snow.at(x, y)]);
+					*pixel_at(x, y) = static_snow.at(x, y);
 				}
 			}
 		}
 
-		// TODO I think some of the flickering might be that flakes of lower
-		// brightness passing in front of others. Try compositing into a 8-bit
-		// image so we can just additive blend these already.
 		for(auto&& flake : snowflakes) {
 			// Skip out of bounds.
 			if(flake.x < 0 || flake.x >= w
 				|| flake.y < 0 || flake.y >= h)
 				{ continue; }
 			unsigned int bright = std::min(255u,
-				flake.mass + static_snow.at(flake.x, flake.y));
-			setpixel(flake.x, flake.y, greyscale[bright]);
+				flake.mass +  *pixel_at(flake.x, flake.y));
+			*pixel_at(flake.x, flake.y) = bright;
 		}
 
-		if(SDL_MUSTLOCK(fb2.get())) { SDL_UnlockSurface(fb2.get()); }
-		SDL_BlitSurface(fb2.get(), nullptr, fb, nullptr);
+		if(SDL_MUSTLOCK(snowfb.get())) { SDL_UnlockSurface(snowfb.get()); }
+		SDL_BlitSurface(snowfb.get(), nullptr, fb, nullptr);
 		SDL_Flip(fb);
 	}
 
