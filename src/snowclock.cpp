@@ -4,6 +4,7 @@
  */
 
 #include <cmath>
+#include <ctime>
 
 #include <array>
 #include <random>
@@ -101,11 +102,13 @@ struct SnowClock : public Hack::Base {
 			from = total - to;
 		}
 
-		void simulate() {
-			// The bottom row of snow is always completely static once formed.
+		void simulate(bool drop_bottom) {
+			// The bottom row of snow usually completely static once formed, but
+			// when drop_bottom is true, we let it fall away.
+			int start_y = h_ - (drop_bottom ? 1 : 2);
 			// We continue once *something* has happened to the snow here, so it
 			// only gets one change per tick.
-			for(int y = h_-2; y >= 0; --y) { // bottom-up makes falling natural
+			for(int y = start_y; y >= 0; --y) { // bottom-up makes falling natural
 				for(int x = 0; x < w_; ++x) {
 					Uint8& here = at(x, y);
 					if(here > 0) {
@@ -139,22 +142,6 @@ struct SnowClock : public Hack::Base {
 								flow(here, down_right);
 								continue;
 							}
-						}
-					}
-				}
-			}
-			// Filled columns? Nuke some settled from the bottom
-			for(int col = 0; col < w_; ++col) {
-				if(at(col, 0) == 255) {
-					int qh = h_/4;
-					for(int x = std::max(0, col-qh); x < std::min(w_, col+qh); ++x) {
-						int remove = (qh - std::abs(x-col)) * 256;// random_mass(generator);
-						for(int y = h_-1; y >= 0 && remove > 0; --y) {
-							Uint8& here = at(x, y);
-							Uint8 was_here = here;
-							if(was_here == 0) { break; }
-							here -= std::min(static_cast<int>(was_here), remove);
-							remove -= was_here;
 						}
 					}
 				}
@@ -204,6 +191,9 @@ struct SnowClock : public Hack::Base {
 	}
 
 	void simulate() override {
+		// Get localtime
+		std::time_t now_epoch = std::time(nullptr);
+		std::tm* now = std::localtime(&now_epoch);
 		// Modify breezes
 		if(next_breeze_in == 0) {
 			// Put energy into system
@@ -309,7 +299,8 @@ struct SnowClock : public Hack::Base {
 			}
 		}
 		// Simulate the static snow
-		static_snow.simulate();
+		// Drop out on the hour for 15 seconds.
+		static_snow.simulate(now->tm_min == 00 && now->tm_sec < 15);
 		++tick;
 	}
 	void render() override {
