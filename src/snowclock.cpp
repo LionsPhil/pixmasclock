@@ -150,6 +150,64 @@ struct SnowClock : public Hack::Base {
 	};
 	StaticSnow static_snow;
 
+	class DigitalClock {
+		struct Digit {
+			bool segment[7];
+			void number(int n) {
+				segment[0] = // top
+					n==0 || n==2 || n==3 || n==5 || n==6 || n==7 || n==8 || n==9;
+				segment[1] = // top-left
+					n==0 || n==4 || n==5 || n==6 || n==7 || n==8 || n==9;
+				segment[2] = // top-right
+					n==0 || n==1 || n==2 || n==3 || n==4 || n==7 || n==8 || n==9;
+				segment[3] = // middle
+					n==2 || n==3 || n==4 || n==5 || n==6 || n==8 || n==9;
+				segment[4] = // bottom-left
+					n==0 || n==2 || n==6 || n==8;
+				segment[5] = // bottom-right
+					n==0 || n==1 || n==3 || n==4 || n==5 || n==6 || n==7 || n==8 || n==9;
+				segment[6] = // bottom
+					n==0 || n==2 || n==3 || n==5 || n==6 || n==8 || n==9;
+			}
+		};
+		Digit digits[4];
+		int last_second_;
+		std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> fb;
+	public:
+		DigitalClock(int w, int h) :
+			last_second_(-1), fb(nullptr, SDL_FreeSurface) {
+			// Make a framebuffer for the clock graphics, which can also be read
+			// back for its physics. Only uses two colors.
+			fb.reset(SDL_CreateRGBSurface(SDL_SWSURFACE | SDL_ASYNCBLIT,
+				w, h, 8, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000));
+			if(fb.get() == nullptr) { throw std::bad_alloc(); }
+			SDL_Color pal[] = {{0, 0, 0, 0}, {0, 255, 0, 0}};
+			if(SDL_SetColors(fb.get(), pal, 0, 2) != 1) {
+				throw std::runtime_error("failed to set clock palette");
+			}
+		}
+		
+		void set_time(const std::tm* tm) {
+			// This is an optimization to avoid recalculating the same time each
+			// tick, which assumes we'll never jump to the same second in some
+			// other time, which should be reasonable for a clock.
+			if(last_second_ == tm->tm_sec) { return; }
+			digits[0].number(tm->tm_hour / 10);
+			digits[1].number(tm->tm_hour % 10);
+			digits[2].number(tm->tm_min / 10);
+			digits[3].number(tm->tm_min % 10);
+			last_second_ = tm->tm_sec;
+
+			// TODO render the segments to fb
+			// Spacings as even divisions of width, where digits are double-wide:
+			// gap, 2*digit, gap, 2*digit, colon, 2*digit, gap 2*digit, gap = 13
+			// For height, it's gap, 3*digit, gap = 5
+		};
+
+		SDL_Surface* rendered() { return fb.get(); } // treat as const
+	};
+	DigitalClock digital_clock;
+
 	SnowClock(SDL_Surface* framebuffer)
 		: fb(framebuffer),
 		snowfb(nullptr, SDL_FreeSurface),
@@ -165,7 +223,8 @@ struct SnowClock : public Hack::Base {
 		breeze_sign(framebuffer->h),
 		tick(0),
 		next_breeze_in(0),
-		static_snow(framebuffer->w, framebuffer->h) {
+		static_snow(framebuffer->w, framebuffer->h),
+		digital_clock(framebuffer->w, framebuffer->h) {
 
 		/* Making SDL format-convert means we don't have to at write time, and
 		 * can just slap down 32-bit values. */
@@ -194,6 +253,7 @@ struct SnowClock : public Hack::Base {
 		// Get localtime
 		std::time_t now_epoch = std::time(nullptr);
 		std::tm* now = std::localtime(&now_epoch);
+		digital_clock.set_time(now);
 		// Modify breezes
 		if(next_breeze_in == 0) {
 			// Put energy into system
@@ -349,6 +409,8 @@ struct SnowClock : public Hack::Base {
 				flake.mass +  *pixel_at(flake.x, flake.y));
 			*pixel_at(flake.x, flake.y) = bright;
 		}
+
+		// TODO merge in digital_clock.rendered()
 
 		if(SDL_MUSTLOCK(snowfb.get())) { SDL_UnlockSurface(snowfb.get()); }
 		SDL_BlitSurface(snowfb.get(), nullptr, fb, nullptr);
