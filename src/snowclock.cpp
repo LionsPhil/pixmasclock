@@ -3,10 +3,12 @@
  * integer version of drifting snow.
  */
 
+#include <cassert>
 #include <cmath>
 #include <ctime>
 
 #include <array>
+#include <functional>
 #include <random>
 #include <stdexcept>
 #include <vector>
@@ -103,7 +105,8 @@ struct SnowClock : public Hack::Base {
 			from = total - to;
 		}
 
-		void simulate(bool drop_bottom) {
+		void simulate(bool drop_bottom,
+			std::function<bool(int,int)> obstacles) {
 			// The bottom row of snow usually completely static once formed, but
 			// when drop_bottom is true, we let it fall away.
 			int start_y = h_ - (drop_bottom ? 1 : 2);
@@ -113,10 +116,13 @@ struct SnowClock : public Hack::Base {
 				for(int x = 0; x < w_; ++x) {
 					Uint8& here = at(x, y);
 					if(here > 0) {
-						// Fall check
+						// Hit check; get crushed by obstacles
+						if(obstacles(x, y)) { here = 0; }
+
+						// Fall check 
 						// (An alternative would be to respawn them as flakes)
 						Uint8& down = at(x, y+1);
-						if(down < here) {
+						if((down < here) && !obstacles(x, y+1)) {
 							flow(here, down);
 							continue;
 						}
@@ -125,9 +131,11 @@ struct SnowClock : public Hack::Base {
 						// FIXME The left->right sweep means we spill left-biased anyway
 						if(x > 0 && x < w_-1) {
 							Uint8& down_left = at(x-1, y+1);
+							bool down_left_obstacle = obstacles(x-1, y+1);
 							Uint8& down_right = at(x+1, y+1);
-							if(down_left < here) {
-								if(down_right < here) {
+							bool down_right_obstacle = obstacles(x+1, y+1);
+							if(down_left < here && ! down_left_obstacle) {
+								if(down_right < here && !down_right_obstacle) {
 									// Split, 3-way flow
 									int total = down_left + down_right + here;
 									down_left = std::min(255, total/2);
@@ -138,7 +146,8 @@ struct SnowClock : public Hack::Base {
 									flow(here, down_left);
 								}
 								continue;
-							} else if (down_right < here) {
+							} else if (down_right < here &&
+								!down_right_obstacle) {
 								// Spill right
 								flow(here, down_right);
 								continue;
@@ -205,6 +214,9 @@ struct SnowClock : public Hack::Base {
 		int last_minute_;
 		int last_second_;
 		std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> fb;
+		// cache format info
+		Uint8 bytes_per_pixel_;
+		Uint16 pitch_;
 	public:
 		DigitalClock(int w, int h) :
 			last_minute_(-1), last_second_(-1), fb(nullptr, SDL_FreeSurface) {
@@ -213,8 +225,11 @@ struct SnowClock : public Hack::Base {
 			fb.reset(SDL_CreateRGBSurface(SDL_SWSURFACE | SDL_ASYNCBLIT,
 				w, h, 8, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000));
 			if(fb.get() == nullptr) { throw std::bad_alloc(); }
-			SDL_Color pal[] = {{0, 0, 0, 0}, {0, 255, 0, 0}};
-			if(SDL_SetColors(fb.get(), pal, 0, 2) != 1) {
+			bytes_per_pixel_ = fb.get()->format->BytesPerPixel;
+			pitch_ = fb.get()->pitch;
+			// Third palette entry is for stupid debugging tricks.
+			SDL_Color pal[] = {{0, 0, 0, 0}, {0, 255, 0, 0}, {0, 127, 255, 0}};
+			if(SDL_SetColors(fb.get(), pal, 0, 3) != 1) {
 				throw std::runtime_error("failed to set clock palette");
 			}
 			if(SDL_SetColorKey(fb.get(), SDL_SRCCOLORKEY | SDL_RLEACCEL, 0) != 0) {
@@ -267,9 +282,29 @@ struct SnowClock : public Hack::Base {
 			for(int i=0; i<4; ++i) {
 				digits[i].render(fb.get(), (((i*3)+1)*w)/13, y, sw, sh, st);
 			}
+
+			// Debug by doing it again...but stupid!
+			// This did at least confirm that solid_at() works.
+			/*
+			for(Sint16 y=0; y<fb.get()->h; ++y) {
+				for(Sint16 x=0; x<fb.get()->w; ++x) {
+					if(solid_at(x, y)) {
+						SDL_Rect r = {x,y,1,1};
+						SDL_FillRect(fb.get(), &r, 2);
+					}
+				}
+			}
+			*/
 		};
 
 		SDL_Surface* rendered() { return fb.get(); } // treat as const
+
+		bool solid_at(int x, int y) {
+			assert(x >= 0); assert(x <= fb.get()->w);
+			assert(y >= 0); assert(y <= fb.get()->h);
+			return static_cast<Uint8 *>(fb.get()->pixels)
+				[(x*bytes_per_pixel_)+(y*pitch_)] != 0;
+		}
 	};
 	DigitalClock digital_clock;
 
@@ -419,11 +454,22 @@ struct SnowClock : public Hack::Base {
 				static_snow.at(flake.x, flake.y) = mass;
 				// Respawn
 				flake.reset_at_top(*this);
+			} else if(digital_clock.solid_at(flake.x, flake.y)) {
+				// Collide with the digital clock and settle on top
+				// (anything on top should collide with the gathered snow).
+				Uint8& above = static_snow.at(flake.x, flake.y-1);
+				above = std::min(255u, above + flake.mass);
+				// Respawn
+				flake.reset_at_top(*this);
 			}
 		}
 		// Simulate the static snow
 		// Drop out on the hour for 15 seconds.
-		static_snow.simulate(now->tm_min == 00 && now->tm_sec < 15);
+		static_snow.simulate(now->tm_min == 00 && now->tm_sec < 15,
+			[&](auto x, auto y){return digital_clock.solid_at(x, y);});
+			// mmmmm this generates some lovely compiler errors
+			/* std::bind(&DigitalClock::solid_at, digital_clock,
+				std::placeholders::_1, std::placeholders::_2) */
 		++tick;
 	}
 	void render() override {
