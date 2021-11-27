@@ -202,11 +202,11 @@ struct SnowClock : public Hack::Base {
 			}
 		};
 		Digit digits[4];
-		int last_second_;
+		int last_minute_;
 		std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> fb;
 	public:
 		DigitalClock(int w, int h) :
-			last_second_(-1), fb(nullptr, SDL_FreeSurface) {
+			last_minute_(-1), fb(nullptr, SDL_FreeSurface) {
 			// Make a framebuffer for the clock graphics, which can also be read
 			// back for its physics. Only uses two colors.
 			fb.reset(SDL_CreateRGBSurface(SDL_SWSURFACE | SDL_ASYNCBLIT,
@@ -223,14 +223,14 @@ struct SnowClock : public Hack::Base {
 		
 		void set_time(const std::tm* tm) {
 			// This is an optimization to avoid recalculating the same time each
-			// tick, which assumes we'll never jump to the same second in some
+			// tick, which assumes we'll never jump to the same minute in some
 			// other time, which should be reasonable for a clock.
-			if(last_second_ == tm->tm_sec) { return; }
+			if(last_minute_ == tm->tm_min) { return; }
 			digits[0].number(tm->tm_hour / 10);
 			digits[1].number(tm->tm_hour % 10);
 			digits[2].number(tm->tm_min / 10);
 			digits[3].number(tm->tm_min % 10);
-			last_second_ = tm->tm_sec;
+			last_minute_ = tm->tm_min;
 
 			// Render the segments to fb
 			// Spacings as even divisions of width, where digits are double-wide:
