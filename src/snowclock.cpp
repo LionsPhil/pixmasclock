@@ -8,6 +8,7 @@
 
 #include <array>
 #include <random>
+#include <stdexcept>
 #include <vector>
 
 #include <SDL.h>
@@ -169,6 +170,42 @@ struct SnowClock : public Hack::Base {
 				segment[6] = // bottom
 					n==0 || n==2 || n==3 || n==5 || n==6 || n==8 || n==9;
 			}
+
+			// sw and sh are *segment* height and width; st segment thickness
+			void render(SDL_Surface* fb,
+				Sint16 x, Sint16 y, Uint16 sw, Uint16 sh, Uint16 st) {
+				// TODO: Consider pulling the corners in by st
+				// This isn't *quite* right since the midbar/bottom are off
+				// The casts here are annoying :c
+				if(segment[0]) { // top
+					SDL_Rect rect = { x, y, sw, st };
+					SDL_FillRect(fb, &rect, 1);
+				}
+				if(segment[1]) { // top-left
+					SDL_Rect rect = { x, y, st, sh };
+					SDL_FillRect(fb, &rect, 1);
+				}
+				if(segment[2]) { // top-right
+					SDL_Rect rect = { static_cast<Sint16>(x+sw-st), y, st, sh };
+					SDL_FillRect(fb, &rect, 1);
+				}
+				if(segment[3]) { // middle
+					SDL_Rect rect = { x, static_cast<Sint16>(y+sh), sw, st };
+					SDL_FillRect(fb, &rect, 1);
+				}
+				if(segment[4]) { // bottom-left
+					SDL_Rect rect = { x, static_cast<Sint16>(y+sh), st, sh };
+					SDL_FillRect(fb, &rect, 1);
+				}
+				if(segment[5]) { // bottom-right
+					SDL_Rect rect = { static_cast<Sint16>(x+sw-st), static_cast<Sint16>(y+sh), st, sh };
+					SDL_FillRect(fb, &rect, 1);
+				}
+				if(segment[6]) { // bottom
+					SDL_Rect rect = { x, static_cast<Sint16>(y+sh+sh-st), sw, st };
+					SDL_FillRect(fb, &rect, 1);
+				}
+			}
 		};
 		Digit digits[4];
 		int last_second_;
@@ -185,6 +222,9 @@ struct SnowClock : public Hack::Base {
 			if(SDL_SetColors(fb.get(), pal, 0, 2) != 1) {
 				throw std::runtime_error("failed to set clock palette");
 			}
+			if(SDL_SetColorKey(fb.get(), SDL_SRCCOLORKEY | SDL_RLEACCEL, 0) != 0) {
+				throw std::runtime_error("failed to set color key");
+			}
 		}
 		
 		void set_time(const std::tm* tm) {
@@ -198,10 +238,21 @@ struct SnowClock : public Hack::Base {
 			digits[3].number(tm->tm_min % 10);
 			last_second_ = tm->tm_sec;
 
-			// TODO render the segments to fb
+			// Render the segments to fb
 			// Spacings as even divisions of width, where digits are double-wide:
 			// gap, 2*digit, gap, 2*digit, colon, 2*digit, gap 2*digit, gap = 13
 			// For height, it's gap, 3*digit, gap = 5
+			SDL_FillRect(fb.get(), nullptr, 0);
+			int w = fb.get()->w;
+			int h = fb.get()->h;
+			int y = (1*h) / 5;
+			int sw = (2*w) / 13;
+			int sh = (3*h) / 10; // i.e. 1.5 fifths
+			const int st = 4;
+			digits[0].render(fb.get(), ( 1*w)/13, y, sw, sh, st);
+			digits[1].render(fb.get(), ( 4*w)/13, y, sw, sh, st);
+			digits[2].render(fb.get(), ( 7*w)/13, y, sw, sh, st);
+			digits[3].render(fb.get(), (10*w)/13, y, sw, sh, st);
 		};
 
 		SDL_Surface* rendered() { return fb.get(); } // treat as const
@@ -410,10 +461,10 @@ struct SnowClock : public Hack::Base {
 			*pixel_at(flake.x, flake.y) = bright;
 		}
 
-		// TODO merge in digital_clock.rendered()
-
 		if(SDL_MUSTLOCK(snowfb.get())) { SDL_UnlockSurface(snowfb.get()); }
 		SDL_BlitSurface(snowfb.get(), nullptr, fb, nullptr);
+		// Merge in the digital clock, which is color-keyed for transparency.
+		SDL_BlitSurface(digital_clock.rendered(), nullptr, fb, nullptr);
 		SDL_Flip(fb);
 	}
 
