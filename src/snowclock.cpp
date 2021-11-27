@@ -171,38 +171,32 @@ struct SnowClock : public Hack::Base {
 					n==0 || n==2 || n==3 || n==5 || n==6 || n==8 || n==9;
 			}
 
-			// sw and sh are *segment* height and width; st segment thickness
+			// sw and sh are *segment* height and width; st segment thickness.
+			// Total render dimensions will be (sw, sh+st) due to the midline.
 			void render(SDL_Surface* fb,
 				Sint16 x, Sint16 y, Uint16 sw, Uint16 sh, Uint16 st) {
-				// TODO: Consider pulling the corners in by st
-				// This isn't *quite* right since the midbar/bottom are off
-				// The casts here are annoying :c
-				if(segment[0]) { // top
-					SDL_Rect rect = { x, y, sw, st };
-					SDL_FillRect(fb, &rect, 1);
-				}
-				if(segment[1]) { // top-left
-					SDL_Rect rect = { x, y, st, sh };
-					SDL_FillRect(fb, &rect, 1);
-				}
-				if(segment[2]) { // top-right
-					SDL_Rect rect = { static_cast<Sint16>(x+sw-st), y, st, sh };
-					SDL_FillRect(fb, &rect, 1);
-				}
-				if(segment[3]) { // middle
-					SDL_Rect rect = { x, static_cast<Sint16>(y+sh), sw, st };
-					SDL_FillRect(fb, &rect, 1);
-				}
-				if(segment[4]) { // bottom-left
-					SDL_Rect rect = { x, static_cast<Sint16>(y+sh), st, sh };
-					SDL_FillRect(fb, &rect, 1);
-				}
-				if(segment[5]) { // bottom-right
-					SDL_Rect rect = { static_cast<Sint16>(x+sw-st), static_cast<Sint16>(y+sh), st, sh };
-					SDL_FillRect(fb, &rect, 1);
-				}
-				if(segment[6]) { // bottom
-					SDL_Rect rect = { x, static_cast<Sint16>(y+sh+sh-st), sw, st };
+				for(int s = 0; s < 7; ++s) {
+					if(!segment[s]) { continue; }
+					SDL_Rect rect = { x, y, st, st };
+					if(s==0||s==3||s==6) { // horizontal
+						rect.x += st;
+						rect.w = sw-(st*2);
+					} else { // vertical
+						rect.y += st;
+						rect.h = sh-st;
+					}
+					if(s==2||s==5) { // right
+						rect.x += sw-st;
+					}
+					if(s==4||s==5) { // bottom vertical
+						rect.y += sh;
+					}
+					if(s==3) { // middle
+						rect.y += sh;
+					}
+					if(s==6) { // bottom
+						rect.y += sh*2;
+					}
 					SDL_FillRect(fb, &rect, 1);
 				}
 			}
@@ -241,18 +235,17 @@ struct SnowClock : public Hack::Base {
 			// Render the segments to fb
 			// Spacings as even divisions of width, where digits are double-wide:
 			// gap, 2*digit, gap, 2*digit, colon, 2*digit, gap 2*digit, gap = 13
-			// For height, it's gap, 3*digit, gap = 5
+			// For height, it's 2*gap, 3*digit, 2*gap = 7
 			SDL_FillRect(fb.get(), nullptr, 0);
+			const int st = 8;
 			int w = fb.get()->w;
 			int h = fb.get()->h;
-			int y = (1*h) / 5;
+			int y = ((2*h) / 7) - (st/2); // centering correction
 			int sw = (2*w) / 13;
-			int sh = (3*h) / 10; // i.e. 1.5 fifths
-			const int st = 4;
-			digits[0].render(fb.get(), ( 1*w)/13, y, sw, sh, st);
-			digits[1].render(fb.get(), ( 4*w)/13, y, sw, sh, st);
-			digits[2].render(fb.get(), ( 7*w)/13, y, sw, sh, st);
-			digits[3].render(fb.get(), (10*w)/13, y, sw, sh, st);
+			int sh = (3*h) / 14; // i.e. 1.5 sevenths
+			for(int i=0; i<4; ++i) {
+				digits[i].render(fb.get(), (((i*3)+1)*w)/13, y, sw, sh, st);
+			}
 		};
 
 		SDL_Surface* rendered() { return fb.get(); } // treat as const
