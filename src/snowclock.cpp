@@ -331,7 +331,6 @@ struct SnowClock : public Hack::Base {
 		}
 		// Smooth them and lose energy
 		// TODO: not spreading downward very well, probably due to decay pass
-		// FIXME migrate fixes from snowint
 		for(int y=1; y<fb->h; ++y) {
 			//if(breeze_delay[y] % tick == 0) {
 				// Share influence with predecessor
@@ -365,8 +364,7 @@ struct SnowClock : public Hack::Base {
 				}
 				// Expire
 				if(breeze_sign[y] == 0) { continue; }
-				if(breeze_delay[y] > 100) { breeze_sign[y] = 0; }
-				if (breeze_delay[y] > 100) {
+				if(breeze_delay[y] > 100) {
 					breeze_sign[y] = 0;
 					breeze_delay[y] = 100;
 				} else {
