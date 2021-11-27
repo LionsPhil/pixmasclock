@@ -203,10 +203,11 @@ struct SnowClock : public Hack::Base {
 		};
 		Digit digits[4];
 		int last_minute_;
+		int last_second_;
 		std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> fb;
 	public:
 		DigitalClock(int w, int h) :
-			last_minute_(-1), fb(nullptr, SDL_FreeSurface) {
+			last_minute_(-1), last_second_(-1), fb(nullptr, SDL_FreeSurface) {
 			// Make a framebuffer for the clock graphics, which can also be read
 			// back for its physics. Only uses two colors.
 			fb.reset(SDL_CreateRGBSurface(SDL_SWSURFACE | SDL_ASYNCBLIT,
@@ -223,14 +224,34 @@ struct SnowClock : public Hack::Base {
 		
 		void set_time(const std::tm* tm) {
 			// This is an optimization to avoid recalculating the same time each
-			// tick, which assumes we'll never jump to the same minute in some
+			// tick, which assumes we'll never jump to the same second in some
 			// other time, which should be reasonable for a clock.
+			if(last_second_ == tm->tm_sec) { return; }
+			last_second_ = tm->tm_sec;
+
+			// Change the festive hue based on the second.
+			Uint8 r, g, s;
+			s = std::min(tm->tm_sec, 59); // no doing evil with leap seconds
+			if(tm->tm_min % 2) { s = 59 - s; }
+			if(s < 30) {
+				r = 255;
+				g = (s*255)/29;
+			} else {
+				r = ((59-s)*255)/29;
+				g = 255;
+			}
+			SDL_Color pal[] = {{r, g, 0, 0}};
+			if(SDL_SetColors(fb.get(), pal, 1, 1) != 1) {
+				throw std::runtime_error("failed to set clock palette");
+			}
+
+			// The actually rendering is only every minute.
 			if(last_minute_ == tm->tm_min) { return; }
+			last_minute_ = tm->tm_min;
 			digits[0].number(tm->tm_hour / 10);
 			digits[1].number(tm->tm_hour % 10);
 			digits[2].number(tm->tm_min / 10);
 			digits[3].number(tm->tm_min % 10);
-			last_minute_ = tm->tm_min;
 
 			// Render the segments to fb
 			// Spacings as even divisions of width, where digits are double-wide:
