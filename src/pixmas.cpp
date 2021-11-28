@@ -1,4 +1,4 @@
-// Blah blah Philip Boulain blah copyright blah 2020 blah 3-CLAUSE BSD LICENSE
+// Copyright (c) 2020 Philip Boulain; see LICENSE for terms.
 #include <exception>
 #include <iostream>
 #include <memory>
