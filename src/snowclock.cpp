@@ -17,7 +17,7 @@
 
 #include "hack.hpp"
 
-constexpr int k_snowflake_count = 1024 * 4;
+constexpr int k_snowflake_count = 1024 * 2;
 
 namespace Hack {
 struct SnowClock : public Hack::Base {
