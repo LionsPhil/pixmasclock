@@ -33,7 +33,7 @@ CPPFLAGSEX = $(CFLAGSEX)
 
 # SOURCES ---------------------------------------------------------------------
 CPPSOURCES = pixmas.cpp \
-             snowfp.cpp snowint.cpp snowclock.cpp
+             snowfp.cpp snowint.cpp snowclock.cpp popclock.cpp
    HEADERS = hack.hpp
 # Anything else you want put in the distributed version
  EXTRADIST = Makefile README.md

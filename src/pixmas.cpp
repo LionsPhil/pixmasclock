@@ -52,7 +52,8 @@ int main(int argc, char** argv) {
 	// TODO: Allow picking at startup or runtime.
 	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowFP(fb);
 	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowInt(fb);
-	std::unique_ptr<Hack::Base> hack = Hack::MakeSnowClock(fb);
+	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowClock(fb);
+	std::unique_ptr<Hack::Base> hack = Hack::MakePopClock(fb);
 
 	Uint32 tickerror = 0;
 	Uint32 ticklast = SDL_GetTicks();
