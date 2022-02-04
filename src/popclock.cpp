@@ -18,8 +18,8 @@
 
 #include "hack.hpp"
 
-constexpr int k_particle_max = 1024 * 2;
-constexpr int k_delay_max = 100; // Given 50Hz, this is 1px every 2sec.
+constexpr int k_particle_max = 1024 * 4;
+constexpr int k_delay_max = 50; // Given 50Hz, this is 1px every sec.
 
 namespace Hack {
 struct PopClock : public Hack::Base {
@@ -52,7 +52,7 @@ struct PopClock : public Hack::Base {
 			dy = h.random_coinflip(h.generator) == 1 ? 1 : -1;
 			delay_x = h.random_delay_x(h.generator);
 			delay_y = h.random_delay_y(h.generator);
-			delay_t = h.random_delay_t(h.generator);
+			delay_t = 1; // h.random_delay_t(h.generator);
 			until_x = delay_x;
 			until_y = delay_y;
 			color = c;
@@ -93,11 +93,12 @@ struct PopClock : public Hack::Base {
 				// Accellerate due to gravity up to terminal velocity
 				if(dy > 0) {
 					// Already down, go faster.
-					if(delay_y > delay_t) { delay_y /= 4; }
+					delay_y /= 3;
+					if(delay_y < delay_t) { delay_y = delay_t; }
 				} else if(dy < 0) {
 					// Up, go slower.
-					delay_y *= 4;
-				} else { dy = 1; } // Steady? Go down.
+					delay_y *= 3;
+				} else { dy = 1; delay_y = k_delay_max; } // Steady? Go down.
 				// Bring slow particles to a full stop, or start falling.
 				if(delay_y > k_delay_max) {
 					if(dy < 0) { // Transition to fall if was upward
@@ -349,10 +350,10 @@ struct PopClock : public Hack::Base {
 			// The actually rendering is only every minute.
 			//if(last_minute_ == tm->tm_min) { return false; } // DEBUG disable
 			last_minute_ = tm->tm_min;
-			digits[0].number(tm->tm_hour / 10);
-			digits[1].number(tm->tm_hour % 10);
-			digits[2].number(tm->tm_min / 10);
-			digits[3].number(tm->tm_sec % 10); // DEBUG
+			digits[0].number(tm->tm_sec / 10); // DEBUG hour
+			digits[1].number(tm->tm_sec % 10); // DEBUG hour
+			digits[2].number(tm->tm_sec / 10); // DEBUG min
+			digits[3].number(tm->tm_sec % 10); // DEBUG min
 			/* REMOVE: ended up doing this visually instead
 			auto change_digit = [&](Digit& digit, int n) {
 				bool old_segments[7];
@@ -523,6 +524,15 @@ struct PopClock : public Hack::Base {
 
 		for(auto&& particle : particles) {
 			if(!particle.active) { continue; }
+
+			// Debug: color-code by delays
+			/*auto color = SDL_MapRGB(partfb->format,
+				((particle.delay_x * 4) + 50),
+				((particle.delay_y * 4) + 50),
+				0);*/
+			// (0x00ff0000 & (((delay_x * 3) + 50) << 2)) |
+			// (0x0000ff00 & (((delay_y * 3) + 50) << 1));
+
 			*pixel_at(particle.x, particle.y) = particle.color;
 		}
 
