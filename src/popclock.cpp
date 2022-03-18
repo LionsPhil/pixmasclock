@@ -19,7 +19,6 @@
 #include "hack.hpp"
 
 constexpr int k_particle_max = 1024 * 4;
-constexpr int k_delay_max = 50; // Given 50Hz, this is 1px every sec.
 
 namespace Hack {
 struct PopClock : public Hack::Base {
@@ -29,32 +28,29 @@ struct PopClock : public Hack::Base {
 	std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> partfb;
 	std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> prev_clock;
 	std::default_random_engine generator;
-	std::uniform_int_distribution<int> random_delay_x;
-	std::uniform_int_distribution<int> random_delay_y;
-	std::uniform_int_distribution<int> random_delay_t;
 	std::uniform_int_distribution<int> random_coinflip;
+	std::uniform_real_distribution<double> random_frac;
 
 	struct Particle {
 		bool active;
-		Sint16 x, y, dx, dy; // dx/dy are sign only
-		// Inverse of dx/dy, i.e. how many ticks between each step.
-		// delay_t is the terminal velocity, the smallest delays can get.
-		unsigned int delay_x, delay_y, delay_t;
-		unsigned int until_x, until_y;
+		double x, y, dx, dy; // dx/dy should not exceed one.
+		double tv; // terminal velocity can be *less* than one.
 		Uint32 color; // Same format as partfb, i.e. ARGB.
 
+		static constexpr double k_gravity = 0.02;
+		static constexpr double k_elasticity = 0.5;
+		static constexpr double k_movement_epsilon = 0.1;
+
 		// Explode alive with random movement.
-		void pop(PopClock& h, Sint16 x, Sint16 y, Uint32 c) {
+		void pop(PopClock& h, double x, double y, Uint32 c) {
 			active = true;
 			this->x = x;
 			this->y = y;
-			dx = h.random_coinflip(h.generator) == 1 ? 1 : -1;
-			dy = h.random_coinflip(h.generator) == 1 ? 1 : -1;
-			delay_x = h.random_delay_x(h.generator);
-			delay_y = h.random_delay_y(h.generator);
-			delay_t = 1; // h.random_delay_t(h.generator);
-			until_x = delay_x;
-			until_y = delay_y;
+			tv = (h.random_frac(h.generator) * 0.8) + 0.2;
+			dx = (h.random_frac(h.generator) * tv);
+			if(h.random_coinflip(h.generator)) { dx *= -1.0; }
+			dy = (h.random_frac(h.generator) * tv);
+			if(h.random_coinflip(h.generator)) { dy *= -1.0; }
 			color = c;
 		}
 
@@ -67,50 +63,30 @@ struct PopClock : public Hack::Base {
 		// static layer.
 		bool simulate(std::function<bool(int,int)> obstacles) {
 			assert(active);
-			// Momentum; these are deliberate postdecrements. If they are zero,
-			// they will wrap, but get reset within the branch.
-			if(until_x-- == 0) {
-				if(dx) {
-					if(obstacles(x+dx, y)) { // Bounce and lose energy.
-						dx = -dx;
-						delay_x *= 2;
-					}
-					x += dx;
-				}
-				if(dx && delay_x > k_delay_max) { dx = 0; } // Stop if slow.
-				until_x = delay_x;
-			}
-			if(until_y-- == 0) {
-				if(dy) {
-					if(obstacles(x, y+dy)) {
-						dy = -dy;
-						// Vertical collisions suck a lot more energy.
-						delay_x *= 4;
-						delay_y *= 2;
-					}
-					y += dy;
-				}
-				// Accellerate due to gravity up to terminal velocity
-				if(dy > 0) {
-					// Already down, go faster.
-					delay_y /= 3;
-					if(delay_y < delay_t) { delay_y = delay_t; }
-				} else if(dy < 0) {
-					// Up, go slower.
-					delay_y *= 3;
-				} else { dy = 1; delay_y = k_delay_max; } // Steady? Go down.
-				// Bring slow particles to a full stop, or start falling.
-				if(delay_y > k_delay_max) {
-					if(dy < 0) { // Transition to fall if was upward
-						dy = 1;
-						delay_y = k_delay_max;
-					} else { dy = 0; }
-				}
-				until_y = delay_y;
-			}
 
-			// Staticize fully stationary particles.
-			return (dx || dy);
+			// Work out potential new location (prime).
+			double xp = x + dx;
+			double yp = y + dy;
+
+			if(obstacles(xp, yp)) {
+				// We would hit something; bounce instead.
+				if(obstacles(xp, y)) { // Colliding horizontally.
+					dx *= -k_elasticity;
+					xp = x;
+				}
+				if(obstacles(x, yp)) { // Colliding vertically.
+					dy *= -k_elasticity;
+					yp = y;
+				}
+			}
+			// Move to new space
+			x = xp; y = yp;
+			// Accellerate due to gravity up to terminal.
+			dy = std::min(tv, dy + k_gravity);
+			// Staticize fully stationary particles unless they can fall.
+			return (abs(dx) > k_movement_epsilon ||
+				abs(dy) > k_movement_epsilon ||
+				!obstacles(x, y+1));
 		}
 	};
 	std::array<Particle, k_particle_max> particles;
@@ -411,10 +387,8 @@ struct PopClock : public Hack::Base {
 		: fb(framebuffer),
 		partfb(nullptr, SDL_FreeSurface),
 		prev_clock(nullptr, SDL_FreeSurface),
-		random_delay_x(1, 20),
-		random_delay_y(1, 10),
-		random_delay_t(1, 50),
 		random_coinflip(0, 1),
+		random_frac(0, 1),
 		static_particles(framebuffer->w, framebuffer->h),
 		digital_clock(framebuffer->w, framebuffer->h) {
 
@@ -489,7 +463,7 @@ struct PopClock : public Hack::Base {
 						digital_clock.solid_at(x, y);
 				})) {
 				// Move this particle to the static layer.
-				static_particles.at(particle.x, particle.y) = 255;
+				static_particles.at(particle.x, particle.y) = particle.color;
 				particle.stop();
 			}
 		}
@@ -524,15 +498,6 @@ struct PopClock : public Hack::Base {
 
 		for(auto&& particle : particles) {
 			if(!particle.active) { continue; }
-
-			// Debug: color-code by delays
-			/*auto color = SDL_MapRGB(partfb->format,
-				((particle.delay_x * 4) + 50),
-				((particle.delay_y * 4) + 50),
-				0);*/
-			// (0x00ff0000 & (((delay_x * 3) + 50) << 2)) |
-			// (0x0000ff00 & (((delay_y * 3) + 50) << 1));
-
 			*pixel_at(particle.x, particle.y) = particle.color;
 		}
 
