@@ -19,6 +19,7 @@
 #include "hack.hpp"
 
 constexpr int k_particle_max = 1024 * 4;
+constexpr double k_segment_drip_chance = 0.05;
 
 namespace Hack {
 struct PopClock : public Hack::Base {
@@ -26,7 +27,6 @@ struct PopClock : public Hack::Base {
 	// Build up the particles for buffering, and also we want
 	// to write raw in a known pixel format rather than FillRect.
 	std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> partfb;
-	std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> prev_clock;
 	std::default_random_engine generator;
 	std::uniform_int_distribution<int> random_coinflip;
 	std::uniform_real_distribution<double> random_frac;
@@ -210,6 +210,42 @@ struct PopClock : public Hack::Base {
 	class DigitalClock {
 		struct Digit {
 			bool segment[7];
+			SDL_Rect segrect[7];
+
+			Digit() {
+				for(int s = 0; s < 7; ++s) {
+					segment[s] = false;
+					segrect[s] = { 0, 0, 0, 0 };
+				}
+			}
+
+			// sw and sh are *segment* height and width; st segment thickness.
+			// Total render dimensions will be (sw, sh+st) due to the midline.
+			void size_for(Sint16 x, Sint16 y, Uint16 sw, Uint16 sh, Uint16 st) {
+				for(int s = 0; s < 7; ++s) {
+					segrect[s] = { x, y, st, st };
+					if(s==0||s==3||s==6) { // horizontal
+						segrect[s].x += st;
+						segrect[s].w = sw-(st*2);
+					} else { // vertical
+						segrect[s].y += st;
+						segrect[s].h = sh-st;
+					}
+					if(s==2||s==5) { // right
+						segrect[s].x += sw-st;
+					}
+					if(s==4||s==5) { // bottom vertical
+						segrect[s].y += sh;
+					}
+					if(s==3) { // middle
+						segrect[s].y += sh;
+					}
+					if(s==6) { // bottom
+						segrect[s].y += sh*2;
+					}
+				}
+			}
+
 			void number(int n) {
 				segment[0] = // top
 					n==0 || n==2 || n==3 || n==5 || n==6 || n==7 || n==8 || n==9;
@@ -227,33 +263,9 @@ struct PopClock : public Hack::Base {
 					n==0 || n==2 || n==3 || n==5 || n==6 || n==8 || n==9;
 			}
 
-			// sw and sh are *segment* height and width; st segment thickness.
-			// Total render dimensions will be (sw, sh+st) due to the midline.
-			void render(SDL_Surface* fb,
-				Sint16 x, Sint16 y, Uint16 sw, Uint16 sh, Uint16 st) {
+			void render(SDL_Surface* fb) {
 				for(int s = 0; s < 7; ++s) {
-					if(!segment[s]) { continue; }
-					SDL_Rect rect = { x, y, st, st };
-					if(s==0||s==3||s==6) { // horizontal
-						rect.x += st;
-						rect.w = sw-(st*2);
-					} else { // vertical
-						rect.y += st;
-						rect.h = sh-st;
-					}
-					if(s==2||s==5) { // right
-						rect.x += sw-st;
-					}
-					if(s==4||s==5) { // bottom vertical
-						rect.y += sh;
-					}
-					if(s==3) { // middle
-						rect.y += sh;
-					}
-					if(s==6) { // bottom
-						rect.y += sh*2;
-					}
-					SDL_FillRect(fb, &rect, 1);
+					if(segment[s]) { SDL_FillRect(fb, &segrect[s], 1); }
 				}
 			}
 		};
@@ -268,10 +280,22 @@ struct PopClock : public Hack::Base {
 		DigitalClock(int w, int h) :
 			last_minute_(-1), last_second_(-1), fb(nullptr, SDL_FreeSurface) {
 			fb.reset(make_surface(w, h));
+
+			// Spacings as even divisions of width, where digits are double-wide:
+			// gap, 2*digit, gap, 2*digit, colon, 2*digit, gap 2*digit, gap = 13
+			// For height, it's 2*gap, 3*digit, 2*gap = 7
+			SDL_FillRect(fb.get(), nullptr, 0);
+			const int st = 8;
+			int y = ((2*h) / 7) - (st/2); // centering correction
+			int sw = (2*w) / 13;
+			int sh = (3*h) / 14; // i.e. 1.5 sevenths
+			for(int i = 0; i < 4; ++i) {
+				digits[i].size_for((((i*3)+1)*w)/13, y, sw, sh, st);
+			}
 		}
 
 		// Make a framebuffer for the clock graphics, which can also be read
-		// back for its physics. Only uses two colors.
+		// back for its physics (but that was a bad idea). Only uses two colors.
 		// The clock does this automatically for its own internal surface.
 		SDL_Surface* make_surface(int w, int h) {
 			std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> s(
@@ -294,8 +318,9 @@ struct PopClock : public Hack::Base {
 			}
 			/* Can't use RLEACCEL while still doing pixels evil:
 			 * https://discourse.libsdl.org/t/pixels-getting-set-to-null/9811/10
+			 * But we're not any more, whee!
 			 */
-			if(SDL_SetColorKey(s.get(), SDL_SRCCOLORKEY, 0) != 0) {
+			if(SDL_SetColorKey(s.get(), SDL_SRCCOLORKEY|SDL_RLEACCEL, 0) != 0) {
 				throw std::runtime_error("failed to set color key");
 			}
 			return s.release();
@@ -347,38 +372,10 @@ struct PopClock : public Hack::Base {
 			digits[1].number(tm->tm_hour % 10);
 			digits[2].number(tm->tm_min / 10);
 			digits[3].number(tm->tm_min % 10);
-			/* REMOVE: ended up doing this visually instead
-			auto change_digit = [&](Digit& digit, int n) {
-				bool old_segments[7];
-				for(int i = 0; i < 7; ++i)
-					{ old_segments[i] = digit.segment[i]; }
-				digit.number(n);
-				for(int i = 0; i < 7; ++i) {
-					if(old_segments[i] && !digit.segment[i]) {
-						// Segment has been removed and should explode into
-						// particles.
-					}
-				}
-			};
-			change_digit(digits[0], tm->tm_hour / 10);
-			change_digit(digits[1], tm->tm_hour % 10);
-			change_digit(digits[2], tm->tm_min / 10);
-			change_digit(digits[3], tm->tm_min % 10);
-			*/
 
 			// Render the segments to fb
-			// Spacings as even divisions of width, where digits are double-wide:
-			// gap, 2*digit, gap, 2*digit, colon, 2*digit, gap 2*digit, gap = 13
-			// For height, it's 2*gap, 3*digit, 2*gap = 7
-			SDL_FillRect(fb.get(), nullptr, 0);
-			const int st = 8;
-			int w = fb.get()->w;
-			int h = fb.get()->h;
-			int y = ((2*h) / 7) - (st/2); // centering correction
-			int sw = (2*w) / 13;
-			int sh = (3*h) / 14; // i.e. 1.5 sevenths
 			for(int i=0; i<4; ++i) {
-				digits[i].render(fb.get(), (((i*3)+1)*w)/13, y, sw, sh, st);
+				digits[i].render(fb.get());
 			}
 			return true;
 		};
@@ -386,16 +383,16 @@ struct PopClock : public Hack::Base {
 		SDL_Surface* rendered() { return fb.get(); } // treat as const
 
 		bool solid_at(int x, int y) {
-			return solid_at_buffer(x, y, fb.get());
-		}
-
-		// Slightly gross re-use to allow comparison with a copy of fb.
-		// It *must* be size and format-identical.
-		bool solid_at_buffer(int x, int y, SDL_Surface* buffer) {
+			auto buffer = fb.get();
 			assert(x >= 0); assert(x <= buffer->w);
 			assert(y >= 0); assert(y <= buffer->h);
 			return static_cast<Uint8 *>(buffer->pixels)
 				[(x*bytes_per_pixel_)+(y*pitch_)] != 0;
+		}
+
+		Digit& get_digit(int i) { // treat as const
+			assert(i >= 0); assert (i <= 4);
+			return digits[i];
 		}
 	};
 	DigitalClock digital_clock;
@@ -403,7 +400,6 @@ struct PopClock : public Hack::Base {
 	PopClock(SDL_Surface* framebuffer)
 		: fb(framebuffer),
 		partfb(nullptr, SDL_FreeSurface),
-		prev_clock(nullptr, SDL_FreeSurface),
 		random_coinflip(0, 1),
 		random_frac(0, 1),
 		static_particles(framebuffer->w, framebuffer->h),
@@ -420,51 +416,34 @@ struct PopClock : public Hack::Base {
 		for(auto&& particle : particles) {
 			particle.stop();
 		}
-
-		/* Setup a mirror of the digital clock so we can find changes. This
-		 * turns out simpler than trying to dig our segment regions, and also
-		 * works if we ever change the clock rendering, even for e.g. fonts. */
-		/* The docs are really ambiguous, but it looks like SDL_ConvertSurface
-		 * *damages* its src argument, freeing its pixel backing store(!). So
-		 * instead this matches the clock's internal format by stealing its
-		 * now-exposed init function. :C */
-		//prev_clock.reset(SDL_ConvertSurface(digital_clock.rendered(),
-		//	digital_clock.rendered()->format, SDL_SWSURFACE | SDL_ASYNCBLIT));
-		prev_clock.reset(digital_clock.make_surface(
-			framebuffer->w, framebuffer->h));
-		SDL_FillRect(prev_clock.get(), nullptr, 0);
 	}
 
 	void simulate() override {
 		// Get localtime and set the clock.
 		std::time_t now_epoch = std::time(nullptr);
 		std::tm* now = std::localtime(&now_epoch);
-		if(digital_clock.set_time(now)) {
-			// Find which segments have gone missing and explode them into
-			// particles.
-			auto prev = prev_clock.get();
-			SDL_Color& color_struct =
-				digital_clock.rendered()->format->palette->colors[1];
-			Uint32 color = SDL_MapRGB(partfb.get()->format,
-				color_struct.r, color_struct.g, color_struct.b);
-			for(int y = 0; y < prev->h; ++y) {
-				for(int x = 0; x < prev->w; ++x) {
-					if(digital_clock.solid_at_buffer(x, y, prev)
-						&& !digital_clock.solid_at(x, y)) {
-						// Boom!
-						int i = find_free_particle();
-						if(i >= 0) {
-							particles[i].pop(*this, x, y, color);
-						} // otherwise, too bad
+		digital_clock.set_time(now);
+
+		// Perhaps spawn some particles dripping off of segments.
+		SDL_Color& color_struct =
+			digital_clock.rendered()->format->palette->colors[1];
+		Uint32 color = SDL_MapRGB(partfb.get()->format,
+			color_struct.r, color_struct.g, color_struct.b);
+		for(int d = 0; d < 4; ++d) {
+			auto digit = digital_clock.get_digit(d);
+			for(int segment = 0; segment < 7; ++segment) {
+				if(digit.segment[segment] &&
+					random_frac(generator) < k_segment_drip_chance) {
+
+					int x = digit.segrect[segment].x;
+					x += random_frac(generator) * digit.segrect[segment].w;
+					int y = digit.segrect[segment].y + digit.segrect[segment].h;
+					int i = find_free_particle();
+					if(i >= 0) {
+						particles[i].pop(*this, x, y, color);
 					}
 				}
 			}
-
-			// Update the previous clock. This mustn't use transparency!
-			// But we can't override that, so clear first. Urgh!
-			// prev_clock should perhaps just be the raw pixel data :C
-			SDL_FillRect(prev, nullptr, 0);
-			SDL_BlitSurface(digital_clock.rendered(), nullptr, prev, nullptr);
 		}
 
 		// Simulate particles.
