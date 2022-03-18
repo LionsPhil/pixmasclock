@@ -38,6 +38,7 @@ struct PopClock : public Hack::Base {
 		Uint32 color; // Same format as partfb, i.e. ARGB.
 
 		static constexpr double k_gravity = 0.02;
+		static constexpr double k_friction = 0.8;
 		static constexpr double k_elasticity = 0.5;
 		static constexpr double k_movement_epsilon = 0.1;
 
@@ -76,6 +77,7 @@ struct PopClock : public Hack::Base {
 				}
 				if(obstacles(x, yp)) { // Colliding vertically.
 					dy *= -k_elasticity;
+					dx *= k_friction; // Don't slide along the bottom freely.
 					yp = y;
 				}
 			}
