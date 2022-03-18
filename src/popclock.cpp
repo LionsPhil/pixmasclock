@@ -166,17 +166,21 @@ struct PopClock : public Hack::Base {
 					} else {
 						// Spill left
 						int i = try_pop(h, x, y, here);
-						if(i > 0) { h.particles[i].dx = -1; }
+						if(i >= 0) { h.particles[i].dx = -1; }
 					}
 					return;
 				} else if (down_right == 0 &&
 					!down_right_obstacle) {
 					// Spill right
 					int i = try_pop(h, x, y, here);
-					if(i > 0) { h.particles[i].dx = 1; }
+					if(i >= 0) { h.particles[i].dx = 1; }
 					return;
 				}
 			}
+		}
+
+		inline Uint32& unsafe_at(int x, int y) {
+			return color_[x + (y*w_)];
 		}
 
 	public:
@@ -192,7 +196,7 @@ struct PopClock : public Hack::Base {
 				// Since we've done our own bounds check, and we size this
 				// precisely once in the c'tor and *shouldn't* screw that up,
 				// use unsafe operator[] instead of at() to skip doing it again.
-				return color_[x + (y*w_)];
+				return unsafe_at(x, y);
 			}
 		}
 
@@ -206,7 +210,7 @@ struct PopClock : public Hack::Base {
 			// Bottom-up makes falling natural.
 			for(int y = start_y; y >= 0; --y) {
 				for(int x = 0; x < w_; ++x) {
-					Uint32& here = at(x, y);
+					Uint32& here = unsafe_at(x, y); // We're iterating in-bounds
 					if(here > 0) {
 						simulate_one(h, obstacles, x, y, here);
 					}
@@ -352,8 +356,8 @@ struct PopClock : public Hack::Base {
 			} else {
 				r = 1.0; b = x;
 			}
-			out_r = 255 * r;
-			out_g = 255 * g;
+			out_r = std::min(255.0, (255 * r) + (64 * b));
+			out_g = std::min(255.0, (191 * g) + (64 * b));
 			out_b = 255 * b;
 		}
 
@@ -449,9 +453,11 @@ struct PopClock : public Hack::Base {
 					int x = digit.segrect[segment].x;
 					x += random_frac(generator) * digit.segrect[segment].w;
 					int y = digit.segrect[segment].y + digit.segrect[segment].h;
-					int i = find_free_particle();
-					if(i >= 0) {
-						particles[i].pop(*this, x, y, color);
+					if(static_particles.at(x, y) == 0) {
+						int i = find_free_particle();
+						if(i >= 0) {
+							particles[i].pop(*this, x, y, color);
+						}
 					}
 				}
 			}
