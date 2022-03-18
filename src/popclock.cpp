@@ -133,6 +133,52 @@ struct PopClock : public Hack::Base {
 			return i;
 		}
 
+		// This is mostly split out for profiling reasons (when not inline).
+		// If it's being called, "here" is nonzero.
+		inline void simulate_one(PopClock& h,
+			std::function<bool(int,int)> obstacles,
+			int x, int y, Uint32& here) {
+			// Hit check; get crushed by obstacles
+			if(obstacles(x, y)) { here = 0; }
+
+			// Fall check
+			Uint32& down = at(x, y+1);
+			if((down == 0) && !obstacles(x, y+1)) {
+				int i = try_pop(h, x, y, here);
+				if(i > 0) {
+					// No horizontal movement.
+					h.particles[i].dx = 0;
+				}
+				return;
+			}
+
+			// Angle of repose check, must be away from walls
+			// FIXME The left->right sweep means we spill left-biased anyway
+			if(x > 0 && x < w_-1) {
+				Uint32& down_left = at(x-1, y+1);
+				bool down_left_obstacle = obstacles(x-1, y+1);
+				Uint32& down_right = at(x+1, y+1);
+				bool down_right_obstacle = obstacles(x+1, y+1);
+				if(down_left == 0 && ! down_left_obstacle) {
+					if(down_right == 0 && !down_right_obstacle) {
+						// Split, 3-way flow. Go either way!
+						try_pop(h, x, y, here);
+					} else {
+						// Spill left
+						int i = try_pop(h, x, y, here);
+						if(i > 0) { h.particles[i].dx = -1; }
+					}
+					return;
+				} else if (down_right == 0 &&
+					!down_right_obstacle) {
+					// Spill right
+					int i = try_pop(h, x, y, here);
+					if(i > 0) { h.particles[i].dx = 1; }
+					return;
+				}
+			}
+		}
+
 	public:
 		StaticParticles(int w, int h) : w_(w), h_(h) {
 			color_.resize(w_ * h_);
@@ -162,45 +208,7 @@ struct PopClock : public Hack::Base {
 				for(int x = 0; x < w_; ++x) {
 					Uint32& here = at(x, y);
 					if(here > 0) {
-						// Hit check; get crushed by obstacles
-						if(obstacles(x, y)) { here = 0; }
-
-						// Fall check
-						Uint32& down = at(x, y+1);
-						if((down == 0) && !obstacles(x, y+1)) {
-							int i = try_pop(h, x, y, here);
-							if(i > 0) {
-								// No horizontal movement.
-								h.particles[i].dx = 0;
-							}
-							continue;
-						}
-
-						// Angle of repose check, must be away from walls
-						// FIXME The left->right sweep means we spill left-biased anyway
-						if(x > 0 && x < w_-1) {
-							Uint32& down_left = at(x-1, y+1);
-							bool down_left_obstacle = obstacles(x-1, y+1);
-							Uint32& down_right = at(x+1, y+1);
-							bool down_right_obstacle = obstacles(x+1, y+1);
-							if(down_left == 0 && ! down_left_obstacle) {
-								if(down_right == 0 && !down_right_obstacle) {
-									// Split, 3-way flow. Go either way!
-									try_pop(h, x, y, here);
-								} else {
-									// Spill left
-									int i = try_pop(h, x, y, here);
-									if(i > 0) { h.particles[i].dx = -1; }
-								}
-								continue;
-							} else if (down_right == 0 &&
-								!down_right_obstacle) {
-								// Spill right
-								int i = try_pop(h, x, y, here);
-								if(i > 0) { h.particles[i].dx = 1; }
-								continue;
-							}
-						}
+						simulate_one(h, obstacles, x, y, here);
 					}
 				}
 			}
@@ -468,9 +476,16 @@ struct PopClock : public Hack::Base {
 
 		// Simulate the static particle mass.
 		// Drop out on the hour for 15 seconds.
-		static_particles.simulate(*this,
-			now->tm_min == 0 && now->tm_sec < 15,
-			[&](auto x, auto y){return digital_clock.solid_at(x, y);});
+		// Nasty hack: this is really expensive, and best I can tell from the
+		// profiling, it's the big sweep through static particle memory
+		// assessing every pixel in the first place, regardless of it we act
+		// on them. It does suck. So hack: do it every *other* tick.
+		static Uint8 tick;
+		if(++tick % 2 == 0) {
+			static_particles.simulate(*this,
+				now->tm_min == 0 && now->tm_sec < 15,
+				[&](auto x, auto y){return digital_clock.solid_at(x, y);});
+		}
 	}
 
 	void render() override {
