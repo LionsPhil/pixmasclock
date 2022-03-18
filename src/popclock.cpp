@@ -157,7 +157,8 @@ struct PopClock : public Hack::Base {
 			int start_y = h_ - (drop_bottom ? 1 : 2);
 			// We continue once *something* has happened to the mass here, so it
 			// only gets one change per tick.
-			for(int y = start_y; y >= 0; --y) { // bottom-up makes falling natural
+			// Bottom-up makes falling natural.
+			for(int y = start_y; y >= 0; --y) {
 				for(int x = 0; x < w_; ++x) {
 					Uint32& here = at(x, y);
 					if(here > 0) {
@@ -374,6 +375,7 @@ struct PopClock : public Hack::Base {
 			digits[3].number(tm->tm_min % 10);
 
 			// Render the segments to fb
+			SDL_FillRect(fb.get(), nullptr, 0);
 			for(int i=0; i<4; ++i) {
 				digits[i].render(fb.get());
 			}
