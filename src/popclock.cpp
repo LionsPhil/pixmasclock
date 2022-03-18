@@ -366,9 +366,10 @@ struct PopClock : public Hack::Base {
 			last_second_ = tm->tm_sec;
 
 			// Change the rainbow hue based on the second.
-			Uint8 r, g, b, s;
+			Uint8 r, g, b; Uint32 s;
 			s = std::min(tm->tm_sec, 59); // no doing evil with leap seconds
-			hue_to_rgb(s/60.0, r, g, b);
+			s += 60 * (tm->tm_min % 3); // three minute hue cycle
+			hue_to_rgb(s/(60.0 * 3), r, g, b);
 			SDL_Color pal[] = {{r, g, b, 0}};
 			if(SDL_SetColors(fb.get(), pal, 1, 1) != 1) {
 				throw std::runtime_error("failed to set clock palette");
