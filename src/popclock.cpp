@@ -299,6 +299,28 @@ struct PopClock : public Hack::Base {
 			return s.release();
 		}
 
+		void hue_to_rgb(double h, Uint8& out_r, Uint8& out_g, Uint8& out_b) {
+			double r = 0, g = 0, b = 0;
+			// https://www.rapidtables.com/convert/color/hsv-to-rgb.html
+			double x = 1.0 - abs(fmod(h * 6.0, 2.0) - 1.0);
+			if(h < 1.0/6.0) {
+				r = 1.0; g = x;
+			} else if(h < 2.0/6.0) {
+				r = x; g = 1.0;
+			} else if(h < 3.0/6.0) {
+				g = 1.0; b = x;
+			} else if(h < 4.0/6.0) {
+				g = x; b = 1.0;
+			} else if(h < 5.0/6.0) {
+				r = x; b = 1.0;
+			} else {
+				r = 1.0; b = x;
+			}
+			out_r = 255 * r;
+			out_g = 255 * g;
+			out_b = 255 * b;
+		}
+
 		// Returns true if solid regions have changed.
 		bool set_time(const std::tm* tm) {
 			// This is an optimization to avoid recalculating the same time each
@@ -307,18 +329,12 @@ struct PopClock : public Hack::Base {
 			if(last_second_ == tm->tm_sec) { return false; }
 			last_second_ = tm->tm_sec;
 
-			// Change the festive hue based on the second.
-			Uint8 r, g, s;
+			// Change the rainbow hue based on the second.
+			Uint8 r, g, b, s;
 			s = std::min(tm->tm_sec, 59); // no doing evil with leap seconds
 			if(tm->tm_min % 2) { s = 59 - s; }
-			if(s < 30) {
-				r = 255;
-				g = (s*255)/29;
-			} else {
-				r = ((59-s)*255)/29;
-				g = 255;
-			}
-			SDL_Color pal[] = {{r, g, 0, 0}};
+			hue_to_rgb(s/60.0, r, g, b);
+			SDL_Color pal[] = {{r, g, b, 0}};
 			if(SDL_SetColors(fb.get(), pal, 1, 1) != 1) {
 				throw std::runtime_error("failed to set clock palette");
 			}
