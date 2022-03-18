@@ -332,7 +332,6 @@ struct PopClock : public Hack::Base {
 			// Change the rainbow hue based on the second.
 			Uint8 r, g, b, s;
 			s = std::min(tm->tm_sec, 59); // no doing evil with leap seconds
-			if(tm->tm_min % 2) { s = 59 - s; }
 			hue_to_rgb(s/60.0, r, g, b);
 			SDL_Color pal[] = {{r, g, b, 0}};
 			if(SDL_SetColors(fb.get(), pal, 1, 1) != 1) {
@@ -340,12 +339,12 @@ struct PopClock : public Hack::Base {
 			}
 
 			// The actually rendering is only every minute.
-			//if(last_minute_ == tm->tm_min) { return false; } // DEBUG disable
+			if(last_minute_ == tm->tm_min) { return false; }
 			last_minute_ = tm->tm_min;
-			digits[0].number(tm->tm_sec / 10); // DEBUG hour
-			digits[1].number(tm->tm_sec % 10); // DEBUG hour
-			digits[2].number(tm->tm_sec / 10); // DEBUG min
-			digits[3].number(tm->tm_sec % 10); // DEBUG min
+			digits[0].number(tm->tm_hour / 10);
+			digits[1].number(tm->tm_hour % 10);
+			digits[2].number(tm->tm_min / 10);
+			digits[3].number(tm->tm_min % 10);
 			/* REMOVE: ended up doing this visually instead
 			auto change_digit = [&](Digit& digit, int n) {
 				bool old_segments[7];
