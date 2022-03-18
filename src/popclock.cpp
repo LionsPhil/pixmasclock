@@ -439,7 +439,7 @@ struct PopClock : public Hack::Base {
 		std::tm* now = std::localtime(&now_epoch);
 		digital_clock.set_time(now);
 
-		// Perhaps spawn some particles dripping off of segments.
+		// Perhaps spawn some particles dripping/launching off of segments.
 		SDL_Color& color_struct =
 			digital_clock.rendered()->format->palette->colors[1];
 		Uint32 color = SDL_MapRGB(partfb.get()->format,
@@ -450,13 +450,23 @@ struct PopClock : public Hack::Base {
 				if(digit.segment[segment] &&
 					random_frac(generator) < k_segment_drip_chance) {
 
+					bool drip = random_coinflip(generator);
 					int x = digit.segrect[segment].x;
 					x += random_frac(generator) * digit.segrect[segment].w;
-					int y = digit.segrect[segment].y + digit.segrect[segment].h;
+					int y = digit.segrect[segment].y;
+					if(drip) {
+						y += digit.segrect[segment].h;
+					} else {
+						--y;
+					}
 					if(static_particles.at(x, y) == 0) {
 						int i = find_free_particle();
 						if(i >= 0) {
 							particles[i].pop(*this, x, y, color);
+							particles[i].dy = abs(particles[i].dy);
+							if(!drip) {
+								particles[i].dy *= -1;
+							}
 						}
 					}
 				}
@@ -487,10 +497,10 @@ struct PopClock : public Hack::Base {
 		// profiling, it's the big sweep through static particle memory
 		// assessing every pixel in the first place, regardless of it we act
 		// on them. It does suck. So hack: do it every *other* tick.
+		bool dropout = now->tm_min == 0 && now->tm_sec < 15;
 		static Uint8 tick;
-		if(++tick % 2 == 0) {
-			static_particles.simulate(*this,
-				now->tm_min == 0 && now->tm_sec < 15,
+		if(dropout || (++tick % 2 == 0)) {
+			static_particles.simulate(*this, dropout,
 				[&](auto x, auto y){return digital_clock.solid_at(x, y);});
 		}
 	}
