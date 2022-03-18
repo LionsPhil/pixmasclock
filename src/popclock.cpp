@@ -47,7 +47,7 @@ struct PopClock : public Hack::Base {
 			active = true;
 			this->x = x;
 			this->y = y;
-			tv = (h.random_frac(h.generator) * 0.8) + 0.2;
+			tv = (h.random_frac(h.generator) * 0.7) + 0.3;
 			dx = (h.random_frac(h.generator) * tv);
 			if(h.random_coinflip(h.generator)) { dx *= -1.0; }
 			dy = (h.random_frac(h.generator) * tv);
@@ -529,7 +529,7 @@ struct PopClock : public Hack::Base {
 		SDL_Flip(fb);
 	}
 
-	Uint32 tick_duration() override { return 20; } // 50Hz
+	Uint32 tick_duration() override { return 33; } // 30Hz
 };
 
 std::unique_ptr<Hack::Base> MakePopClock(SDL_Surface* framebuffer) {
