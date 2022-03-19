@@ -20,7 +20,7 @@
 
 // #define DEBUG_DROPOUT
 
-constexpr int k_particle_max = 1024 * 4;
+constexpr int k_particle_max = 1024 * 2;
 #ifdef DEBUG_DROPOUT
 constexpr double k_segment_drip_chance = 1.0;
 #else
