@@ -24,8 +24,9 @@ constexpr int k_particle_max = 1024 * 4;
 #ifdef DEBUG_DROPOUT
 constexpr double k_segment_drip_chance = 1.0;
 #else
-constexpr double k_segment_drip_chance = 0.05;
+constexpr double k_segment_drip_chance = 0.1;
 #endif
+constexpr int k_hue_rotation_minutes = 15;
 
 namespace Hack {
 struct PopClock : public Hack::Base {
@@ -404,8 +405,8 @@ struct PopClock : public Hack::Base {
 			// Change the rainbow hue based on the second.
 			Uint8 r, g, b; Uint32 s;
 			s = std::min(tm->tm_sec, 59); // no doing evil with leap seconds
-			s += 60 * (tm->tm_min % 3); // three minute hue cycle
-			hue_to_rgb(s/(60.0 * 3), r, g, b);
+			s += 60 * (tm->tm_min % k_hue_rotation_minutes);
+			hue_to_rgb(s/(60.0 * k_hue_rotation_minutes), r, g, b);
 			SDL_Color pal[] = {{r, g, b, 0}};
 			if(SDL_SetColors(fb.get(), pal, 1, 1) != 1) {
 				throw std::runtime_error("failed to set clock palette");
@@ -580,7 +581,7 @@ struct PopClock : public Hack::Base {
 		SDL_Flip(fb);
 	}
 
-	Uint32 tick_duration() override { return 33; } // 30Hz
+	Uint32 tick_duration() override { return 50; } // 20Hz
 };
 
 std::unique_ptr<Hack::Base> MakePopClock(SDL_Surface* framebuffer) {
