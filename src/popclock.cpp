@@ -18,7 +18,7 @@
 
 #include "hack.hpp"
 
-#define DEBUG_DROPOUT
+// #define DEBUG_DROPOUT
 
 constexpr int k_particle_max = 1024 * 4;
 #ifdef DEBUG_DROPOUT
@@ -68,19 +68,12 @@ struct PopClock : public Hack::Base {
 
 		// If returns false, the particle has settled and should switch to the
 		// static layer.
-		bool simulate(std::function<bool(int,int)> obstacles, int drop_below) {
+		bool simulate(std::function<bool(int,int)> obstacles) {
 			assert(active);
 
 			// Work out potential new location (prime).
 			double xp = x + dx;
 			double yp = y + dy;
-
-			if(drop_below && yp > drop_below) {
-				// Fall offscreen. We'll turn into a static particle that never
-				// actually gets set, since it's out of bounds.
-				y = yp;
-				return false;
-			}
 
 			if(obstacles(xp, yp)) {
 				// We would hit something; bounce instead.
@@ -149,14 +142,20 @@ struct PopClock : public Hack::Base {
 		// This is mostly split out for profiling reasons (when not inline).
 		// If it's being called, "here" is nonzero.
 		inline void simulate_one(PopClock& h,
-			std::function<bool(int,int)> obstacles,
+			std::function<bool(int,int)> obstacles, bool drop_bottom,
 			int x, int y, Uint32 here) {
 			// Hit check; get crushed by obstacles
 			if(obstacles(x, y)) { set(x, y, 0); return; }
 
 			// Fall check
-			Uint32 down = get(x, y+1);
-			if((down == 0) && !obstacles(x, y+1)) {
+			bool fall = false;
+			if(y+1 >= h_) {
+				if(drop_bottom) { fall = true; }
+			} else {
+				Uint32 down = get(x, y+1);
+				if((down == 0) && !obstacles(x, y+1)) { fall = true; }
+			}
+			if(fall) {
 				int i = try_pop(h, x, y, here);
 				if(i > 0) {
 					// No horizontal movement.
@@ -164,6 +163,11 @@ struct PopClock : public Hack::Base {
 				}
 				return;
 			}
+			// We shouldn't be simming the bottom row beyond this point!
+			// That would mean we got run on it without drop_bottom set, which
+			// would be, at best, pointless. But also means we're confused.
+			// (And we will throw on the assert in obstacles() checks below.)
+			assert(y+1 < h_);
 
 			// Angle of repose check
 			// FIXME The left->right sweep means we spill left-biased anyway
@@ -231,7 +235,7 @@ struct PopClock : public Hack::Base {
 				for(int x = 0; x < w_; ++x) {
 					Uint32 here = unsafe_at(x, y); // We're iterating in-bounds
 					if(here > 0) {
-						simulate_one(h, obstacles, x, y, here);
+						simulate_one(h, obstacles, drop_bottom, x, y, here);
 					}
 				}
 			}
@@ -427,8 +431,8 @@ struct PopClock : public Hack::Base {
 
 		bool solid_at(int x, int y) {
 			auto buffer = fb.get();
-			assert(x >= 0); assert(x <= buffer->w);
-			assert(y >= 0); assert(y <= buffer->h);
+			assert(x >= 0); assert(x < buffer->w);
+			assert(y >= 0); assert(y < buffer->h);
 			return static_cast<Uint8 *>(buffer->pixels)
 				[(x*bytes_per_pixel_)+(y*pitch_)] != 0;
 		}
@@ -514,16 +518,24 @@ struct PopClock : public Hack::Base {
 		for(auto&& particle : particles) {
 			if(!particle.active) { continue; }
 			if(!particle.simulate(
-				// The floor must always be solid to avoid travel out of bounds.
+				// The floor must always be solid to avoid travel out of bounds
+				// ...except we break that rule during dropout and catch it
+				// below. We still need to not doing solid_at() checks OOB.
 				[&](auto x, auto y) {
+					if(dropout && y >= h) { return false; }
 					return
 						x < 0 || x >= w ||
 						y < 0 || y >= h ||
 						static_particles.get(x, y) != 0 ||
 						digital_clock.solid_at(x, y);
-				}, dropout ? h-1 : 0)) {
+				})) {
 				// Move this particle to the static layer.
 				static_particles.set(particle.x, particle.y, particle.color);
+				particle.stop();
+			}
+			if(dropout && particle.y >= h) {
+				// We've let this particle fall out of bounds, and *must* now
+				// stop it since that's invalid and will crash during render.
 				particle.stop();
 			}
 		}
