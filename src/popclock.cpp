@@ -18,8 +18,14 @@
 
 #include "hack.hpp"
 
+#define DEBUG_DROPOUT
+
 constexpr int k_particle_max = 1024 * 4;
+#ifdef DEBUG_DROPOUT
+constexpr double k_segment_drip_chance = 1.0;
+#else
 constexpr double k_segment_drip_chance = 0.05;
+#endif
 
 namespace Hack {
 struct PopClock : public Hack::Base {
@@ -62,12 +68,19 @@ struct PopClock : public Hack::Base {
 
 		// If returns false, the particle has settled and should switch to the
 		// static layer.
-		bool simulate(std::function<bool(int,int)> obstacles) {
+		bool simulate(std::function<bool(int,int)> obstacles, int drop_below) {
 			assert(active);
 
 			// Work out potential new location (prime).
 			double xp = x + dx;
 			double yp = y + dy;
+
+			if(drop_below && yp > drop_below) {
+				// Fall offscreen. We'll turn into a static particle that never
+				// actually gets set, since it's out of bounds.
+				y = yp;
+				return false;
+			}
 
 			if(obstacles(xp, yp)) {
 				// We would hit something; bounce instead.
@@ -113,22 +126,22 @@ struct PopClock : public Hack::Base {
 	class StaticParticles {
 		std::vector<Uint32> color_; // partfb format, i.e. ARGB; 0 = empty.
 		int w_, h_;
-		/* Dummy value for silenly allowing accesses outside the bounds, instead
-		 * of needing lots of perfect defensive coding when looking at adjacent
-		 * pixels (that will have to invent a value on read anyway). This isn't
-		 * threadsafe, but we're not threaded. */
-		bool needs_sim;
+		// Y co-ordinate of higest particle needing simulation (h = none).
+		int needs_sim_up_to;
+		bool had_particle_exhaustion;
 
 		// Convert to a dynamic particle, if there is one free, and clear the
-		// static mass here if so (assuming here is a reference from at()).
+		// static mass here if so.
 		// Returns the index of the new particle (or -1 if failed).
 		int try_pop(PopClock& h, int x, int y, Uint32 here) {
 			int i = h.find_free_particle();
 			if(i >= 0) {
 				h.particles[i].pop(h, x, y, here);
 				// Force downward momentum in every case.
-				h.particles[i].dy = 1;
+				h.particles[i].dy = abs(h.particles[i].dy);
 				set(x, y, 0);
+			} else {
+				had_particle_exhaustion = true;
 			}
 			return i;
 		}
@@ -152,30 +165,31 @@ struct PopClock : public Hack::Base {
 				return;
 			}
 
-			// Angle of repose check, must be away from walls
+			// Angle of repose check
 			// FIXME The left->right sweep means we spill left-biased anyway
-			if(x > 0 && x < w_-1) {
-				Uint32 down_left = get(x-1, y+1);
-				bool down_left_obstacle = obstacles(x-1, y+1);
-				Uint32 down_right = get(x+1, y+1);
-				bool down_right_obstacle = obstacles(x+1, y+1);
-				if(down_left == 0 && ! down_left_obstacle) {
-					if(down_right == 0 && !down_right_obstacle) {
-						// Split, 3-way flow. Go either way!
-						try_pop(h, x, y, here);
-					} else {
-						// Spill left
-						int i = try_pop(h, x, y, here);
-						if(i >= 0) { h.particles[i].dx = -1; }
-					}
+			Uint32 down_left = get(x-1, y+1);
+			bool down_left_obstacle = x==0 ? true : obstacles(x-1, y+1);
+			Uint32 down_right = get(x+1, y+1);
+			bool down_right_obstacle = x==w_-1 ? true : obstacles(x+1, y+1);
+			if(down_left == 0 && ! down_left_obstacle) {
+				if(down_right == 0 && !down_right_obstacle) {
+					// Split, 3-way flow. Go either way!
+					try_pop(h, x, y, here);
 					return;
-				} else if (down_right == 0 &&
-					!down_right_obstacle) {
-					// Spill right
+				} else {
+					// Spill left
 					int i = try_pop(h, x, y, here);
-					if(i >= 0) { h.particles[i].dx = 1; }
-					return;
+					if(i >= 0)
+						{ h.particles[i].dx = -abs(h.particles[i].dx); }
 				}
+				return;
+			} else if (down_right == 0 &&
+				!down_right_obstacle) {
+				// Spill right
+				int i = try_pop(h, x, y, here);
+				if(i >= 0)
+					{ h.particles[i].dx = abs(h.particles[i].dx); }
+				return;
 			}
 		}
 
@@ -184,7 +198,8 @@ struct PopClock : public Hack::Base {
 		}
 
 	public:
-		StaticParticles(int w, int h) : w_(w), h_(h), needs_sim(false) {
+		StaticParticles(int w, int h) : w_(w), h_(h), needs_sim_up_to(h),
+			had_particle_exhaustion(false) {
 			color_.resize(w_ * h_);
 		}
 
@@ -196,27 +211,39 @@ struct PopClock : public Hack::Base {
 		void set(int x, int y, Uint32 c) {
 			if(x < 0 || x >= w_ || y < 0 || y >= h_) { return; }
 			unsafe_at(x, y) = c;
-			needs_sim = true;
+			// Allow for the one above us to fall.
+			needs_sim_up_to = std::min(needs_sim_up_to, std::max(0, y - 1));
 		}
 
 		void simulate(PopClock& h, bool drop_bottom,
 			std::function<bool(int,int)> obstacles) {
-			if(!needs_sim) { return; }
-			needs_sim = false;
 			// The bottom row is usually completely static once formed, but
 			// when drop_bottom is true, we let it fall away.
 			int start_y = h_ - (drop_bottom ? 1 : 2);
+			// Only sim up to changes; if drop-bottom, that forces bottom row.
+			// (If not drop-bottom, if nothing else active, don't loop at all.)
+			int stop_y = std::min(needs_sim_up_to, drop_bottom ? h_ - 1 : h_);
+			needs_sim_up_to = h_;
 			// We continue once *something* has happened to the mass here, so it
 			// only gets one change per tick.
 			// Bottom-up makes falling natural.
-			for(int y = start_y; y >= 0; --y) {
+			for(int y = start_y; y >= stop_y; --y) {
 				for(int x = 0; x < w_; ++x) {
-					Uint32& here = unsafe_at(x, y); // We're iterating in-bounds
+					Uint32 here = unsafe_at(x, y); // We're iterating in-bounds
 					if(here > 0) {
 						simulate_one(h, obstacles, x, y, here);
 					}
 				}
 			}
+			// If we could't move stuff to dynamic particles, retry next tick.
+			if(had_particle_exhaustion) {
+				needs_sim_up_to = std::min(needs_sim_up_to, stop_y);
+				had_particle_exhaustion = false;
+			}
+		}
+
+		void force_full_simulate_next() {
+			needs_sim_up_to = 0;
 		}
 	};
 	StaticParticles static_particles;
@@ -435,10 +462,19 @@ struct PopClock : public Hack::Base {
 	}
 
 	void simulate() override {
+		auto w = fb->w, h = fb->h;
 		// Get localtime and set the clock.
 		std::time_t now_epoch = std::time(nullptr);
 		std::tm* now = std::localtime(&now_epoch);
-		digital_clock.set_time(now);
+		if(digital_clock.set_time(now)) {
+			static_particles.force_full_simulate_next();
+		}
+
+		// Drop out on the hour for 15 seconds.
+		bool dropout = now->tm_min == 0 && now->tm_sec < 15;
+#ifdef DEBUG_DROPOUT
+		dropout = now->tm_sec < 15;
+#endif
 
 		// Perhaps spawn some particles dripping/launching off of segments.
 		SDL_Color& color_struct =
@@ -481,11 +517,11 @@ struct PopClock : public Hack::Base {
 				// The floor must always be solid to avoid travel out of bounds.
 				[&](auto x, auto y) {
 					return
-						x < 0 || x >= fb->w ||
-						y < 0 || y >= fb->h ||
+						x < 0 || x >= w ||
+						y < 0 || y >= h ||
 						static_particles.get(x, y) != 0 ||
 						digital_clock.solid_at(x, y);
-				})) {
+				}, dropout ? h-1 : 0)) {
 				// Move this particle to the static layer.
 				static_particles.set(particle.x, particle.y, particle.color);
 				particle.stop();
@@ -493,8 +529,6 @@ struct PopClock : public Hack::Base {
 		}
 
 		// Simulate the static particle mass.
-		// Drop out on the hour for 15 seconds.
-		bool dropout = now->tm_min == 0 && now->tm_sec < 15;
 		static_particles.simulate(*this, dropout,
 			[&](auto x, auto y){return digital_clock.solid_at(x, y);});
 	}
