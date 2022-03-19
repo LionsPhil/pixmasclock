@@ -117,18 +117,18 @@ struct PopClock : public Hack::Base {
 		 * of needing lots of perfect defensive coding when looking at adjacent
 		 * pixels (that will have to invent a value on read anyway). This isn't
 		 * threadsafe, but we're not threaded. */
-		Uint32 out_of_bounds_;
+		bool needs_sim;
 
 		// Convert to a dynamic particle, if there is one free, and clear the
 		// static mass here if so (assuming here is a reference from at()).
 		// Returns the index of the new particle (or -1 if failed).
-		int try_pop(PopClock& h, int x, int y, Uint32& here) {
+		int try_pop(PopClock& h, int x, int y, Uint32 here) {
 			int i = h.find_free_particle();
 			if(i >= 0) {
 				h.particles[i].pop(h, x, y, here);
 				// Force downward momentum in every case.
 				h.particles[i].dy = 1;
-				here = 0;
+				set(x, y, 0);
 			}
 			return i;
 		}
@@ -137,12 +137,12 @@ struct PopClock : public Hack::Base {
 		// If it's being called, "here" is nonzero.
 		inline void simulate_one(PopClock& h,
 			std::function<bool(int,int)> obstacles,
-			int x, int y, Uint32& here) {
+			int x, int y, Uint32 here) {
 			// Hit check; get crushed by obstacles
-			if(obstacles(x, y)) { here = 0; }
+			if(obstacles(x, y)) { set(x, y, 0); return; }
 
 			// Fall check
-			Uint32& down = at(x, y+1);
+			Uint32 down = get(x, y+1);
 			if((down == 0) && !obstacles(x, y+1)) {
 				int i = try_pop(h, x, y, here);
 				if(i > 0) {
@@ -155,9 +155,9 @@ struct PopClock : public Hack::Base {
 			// Angle of repose check, must be away from walls
 			// FIXME The left->right sweep means we spill left-biased anyway
 			if(x > 0 && x < w_-1) {
-				Uint32& down_left = at(x-1, y+1);
+				Uint32 down_left = get(x-1, y+1);
 				bool down_left_obstacle = obstacles(x-1, y+1);
-				Uint32& down_right = at(x+1, y+1);
+				Uint32 down_right = get(x+1, y+1);
 				bool down_right_obstacle = obstacles(x+1, y+1);
 				if(down_left == 0 && ! down_left_obstacle) {
 					if(down_right == 0 && !down_right_obstacle) {
@@ -184,24 +184,25 @@ struct PopClock : public Hack::Base {
 		}
 
 	public:
-		StaticParticles(int w, int h) : w_(w), h_(h) {
+		StaticParticles(int w, int h) : w_(w), h_(h), needs_sim(false) {
 			color_.resize(w_ * h_);
 		}
 
-		Uint32& at(int x, int y) {
-			if(x < 0 || x >= w_ || y < 0 || y >= h_) {
-				out_of_bounds_ = 0; // In case garbage was written previously.
-				return out_of_bounds_;
-			} else {
-				// Since we've done our own bounds check, and we size this
-				// precisely once in the c'tor and *shouldn't* screw that up,
-				// use unsafe operator[] instead of at() to skip doing it again.
-				return unsafe_at(x, y);
-			}
+		Uint32 get(int x, int y) {
+			if(x < 0 || x >= w_ || y < 0 || y >= h_) { return 0; }
+			return unsafe_at(x, y);
+		}
+
+		void set(int x, int y, Uint32 c) {
+			if(x < 0 || x >= w_ || y < 0 || y >= h_) { return; }
+			unsafe_at(x, y) = c;
+			needs_sim = true;
 		}
 
 		void simulate(PopClock& h, bool drop_bottom,
 			std::function<bool(int,int)> obstacles) {
+			if(!needs_sim) { return; }
+			needs_sim = false;
 			// The bottom row is usually completely static once formed, but
 			// when drop_bottom is true, we let it fall away.
 			int start_y = h_ - (drop_bottom ? 1 : 2);
@@ -459,7 +460,7 @@ struct PopClock : public Hack::Base {
 					} else {
 						--y;
 					}
-					if(static_particles.at(x, y) == 0) {
+					if(static_particles.get(x, y) == 0) {
 						int i = find_free_particle();
 						if(i >= 0) {
 							particles[i].pop(*this, x, y, color);
@@ -482,27 +483,20 @@ struct PopClock : public Hack::Base {
 					return
 						x < 0 || x >= fb->w ||
 						y < 0 || y >= fb->h ||
-						static_particles.at(x, y) != 0 ||
+						static_particles.get(x, y) != 0 ||
 						digital_clock.solid_at(x, y);
 				})) {
 				// Move this particle to the static layer.
-				static_particles.at(particle.x, particle.y) = particle.color;
+				static_particles.set(particle.x, particle.y, particle.color);
 				particle.stop();
 			}
 		}
 
 		// Simulate the static particle mass.
 		// Drop out on the hour for 15 seconds.
-		// Nasty hack: this is really expensive, and best I can tell from the
-		// profiling, it's the big sweep through static particle memory
-		// assessing every pixel in the first place, regardless of it we act
-		// on them. It does suck. So hack: do it every *other* tick.
 		bool dropout = now->tm_min == 0 && now->tm_sec < 15;
-		static Uint8 tick;
-		if(dropout || (++tick % 2 == 0)) {
-			static_particles.simulate(*this, dropout,
-				[&](auto x, auto y){return digital_clock.solid_at(x, y);});
-		}
+		static_particles.simulate(*this, dropout,
+			[&](auto x, auto y){return digital_clock.solid_at(x, y);});
 	}
 
 	void render() override {
@@ -520,8 +514,9 @@ struct PopClock : public Hack::Base {
 
 		for(Sint16 y=0; y<h; ++y) {
 			for(Sint16 x=0; x<w; ++x) {
-				if(static_particles.at(x, y) != 0) {
-					*pixel_at(x, y) = static_particles.at(x, y);
+				Uint32 c = static_particles.get(x, y);
+				if(c != 0) {
+					*pixel_at(x, y) = c;
 				}
 			}
 		}
