@@ -20,8 +20,8 @@
 
 // #define DEBUG_DROPOUT
 
-constexpr int k_particle_min = 256; // Does not guarantee they'll be active.
-constexpr int k_particle_max = 480 * 320 / 2;
+constexpr size_t k_defragment_threshold = 2048; // Don't defrag to < this.
+constexpr int k_defragment_factor = 2; // N times size vs number active.
 #ifdef DEBUG_DROPOUT
 constexpr double k_segment_drip_chance = 1.0;
 #else
@@ -102,40 +102,14 @@ struct PopClock : public Hack::Base {
 		}
 	};
 	std::vector<Particle> particles;
-	/* Find the index of the next free (inactive) particle in the particles
-	 * array, or -1 if there are no free particles. Treats it in a circular
-	 * buffer-ish fashion to avoid repeated O(N) sweeps.
-	 * (This is a dynamically resizing vector now, to handle drop-out spikes
-	 * better.) */
-	int find_free_particle() {
-		static size_t last_free_particle = 0;
-		int found = -1;
-		for(size_t i = last_free_particle; i < particles.size(); ++i) {
-			if(!particles[i].active) { found = i; break; }
-		}
-		if(found == -1) {
-			for(size_t i = 0; i < last_free_particle; ++i) {
-				if(!particles[i].active) { found = i; break; }
-			}
-		}
-		// So long as we are allowed, grow the particle buffer.
-		// Note we're touching the vector size, not the allocation, although
-		// it will likely grow roughly in step with this.
-		if(found == -1 && (particles.size() < k_particle_max)) {
-			found = particles.size();
-			if(particles.size() < k_particle_min) {
-				// Init, and in theory super-aggressively-timed defrag.
-				particles.resize(k_particle_min);
-			} else {
-				// The upsize factor *must* be smaller than the utilization
-				// factor used to decide when we should defragment, else we
-				// get hilarious hysteresis.
-				// TODO: Just push_back() and lose all this cleverness.
-				particles.resize(particles.size() * 1.25);
-			}
-		}
-		if(found != -1) { last_free_particle = found + 1; }
-		return found;
+
+	/* Get an index for the next free (inactive) particle in the particles
+	 * vector. In past versions this did clever circular buffer stuff with
+	 * a static-sized array. Now we just throw it at vector to deal with.
+	 * Can no longer return -1 for no free particles. Return is always valid. */
+	size_t find_free_particle() {
+		particles.emplace_back();
+		return particles.size() - 1;
 	}
 
 	void defragment_particles() {
@@ -155,21 +129,16 @@ struct PopClock : public Hack::Base {
 		int w_, h_;
 		// Y co-ordinate of higest particle needing simulation (h = none).
 		int needs_sim_up_to;
-		bool had_particle_exhaustion;
 
 		// Convert to a dynamic particle, if there is one free, and clear the
 		// static mass here if so.
 		// Returns the index of the new particle (or -1 if failed).
 		int try_pop(PopClock& h, int x, int y, Uint32 here) {
-			int i = h.find_free_particle();
-			if(i >= 0) {
-				h.particles[i].pop(h, x, y, here);
-				// Force downward momentum in every case.
-				h.particles[i].dy = abs(h.particles[i].dy);
-				set(x, y, 0);
-			} else {
-				had_particle_exhaustion = true;
-			}
+			size_t i = h.find_free_particle();
+			h.particles[i].pop(h, x, y, here);
+			// Force downward momentum in every case.
+			h.particles[i].dy = abs(h.particles[i].dy);
+			set(x, y, 0);
 			return i;
 		}
 
@@ -236,8 +205,7 @@ struct PopClock : public Hack::Base {
 		}
 
 	public:
-		StaticParticles(int w, int h) : w_(w), h_(h), needs_sim_up_to(h),
-			had_particle_exhaustion(false) {
+		StaticParticles(int w, int h) : w_(w), h_(h), needs_sim_up_to(h) {
 			color_.resize(w_ * h_);
 		}
 
@@ -273,15 +241,10 @@ struct PopClock : public Hack::Base {
 					}
 				}
 			}
-			// If we could't move stuff to dynamic particles, retry next tick.
-			if(had_particle_exhaustion) {
-				needs_sim_up_to = std::min(needs_sim_up_to, stop_y);
-				had_particle_exhaustion = false;
-			}
 		}
 
-		void force_full_simulate_next() {
-			needs_sim_up_to = 0;
+		void force_full_simulate_next(int up_to) {
+			needs_sim_up_to = up_to;
 		}
 	};
 	StaticParticles static_particles;
@@ -505,7 +468,10 @@ struct PopClock : public Hack::Base {
 		std::time_t now_epoch = std::time(nullptr);
 		std::tm* now = std::localtime(&now_epoch);
 		if(digital_clock.set_time(now)) {
-			static_particles.force_full_simulate_next();
+			// This is a bit cheeky, making assumptions about digit layout,
+			// but saves us scanning the top chunk of the display for nothing.
+			static_particles.force_full_simulate_next(
+				digital_clock.get_digit(0).segrect[0].y - 1);
 		}
 
 		// Drop out on the hour for 15 seconds.
@@ -535,13 +501,11 @@ struct PopClock : public Hack::Base {
 						--y;
 					}
 					if(static_particles.get(x, y) == 0) {
-						int i = find_free_particle();
-						if(i >= 0) {
-							particles[i].pop(*this, x, y, color);
-							particles[i].dy = abs(particles[i].dy);
-							if(!drip) {
-								particles[i].dy *= -1;
-							}
+						size_t i = find_free_particle();
+						particles[i].pop(*this, x, y, color);
+						particles[i].dy = abs(particles[i].dy);
+						if(!drip) {
+							particles[i].dy *= -1;
 						}
 					}
 				}
@@ -577,9 +541,8 @@ struct PopClock : public Hack::Base {
 		}
 
 		// Defragment particles if it's getting sparse.
-		if((active_particles > k_particle_min) &&
-			((active_particles * 2) < particles.size())) {
-			size_t sz = particles.size(); sz *= 1; // DEBUG for log-watch
+		if((particles.size() > k_defragment_threshold) &&
+			((active_particles * k_defragment_factor) < particles.size())) {
 			defragment_particles();
 		}
 
