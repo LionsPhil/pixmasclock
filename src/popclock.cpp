@@ -20,11 +20,11 @@
 
 // #define DEBUG_DROPOUT
 
-constexpr int k_particle_max = 1024 * 2;
+constexpr int k_particle_max = 480 * 320 / 4;
 #ifdef DEBUG_DROPOUT
 constexpr double k_segment_drip_chance = 1.0;
 #else
-constexpr double k_segment_drip_chance = 0.1;
+constexpr double k_segment_drip_chance = 0.15;
 #endif
 constexpr int k_hue_rotation_minutes = 15;
 
@@ -581,7 +581,7 @@ struct PopClock : public Hack::Base {
 		SDL_Flip(fb);
 	}
 
-	Uint32 tick_duration() override { return 50; } // 20Hz
+	Uint32 tick_duration() override { return 100; } // 10Hz
 };
 
 std::unique_ptr<Hack::Base> MakePopClock(SDL_Surface* framebuffer) {
