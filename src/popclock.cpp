@@ -8,7 +8,7 @@
 #include <cmath>
 #include <ctime>
 
-#include <array>
+#include <algorithm>
 #include <functional>
 #include <random>
 #include <stdexcept>
@@ -20,7 +20,8 @@
 
 // #define DEBUG_DROPOUT
 
-constexpr int k_particle_max = 480 * 320 / 4;
+constexpr int k_particle_min = 256; // Does not guarantee they'll be active.
+constexpr int k_particle_max = 480 * 320 / 2;
 #ifdef DEBUG_DROPOUT
 constexpr double k_segment_drip_chance = 1.0;
 #else
@@ -48,6 +49,8 @@ struct PopClock : public Hack::Base {
 		static constexpr double k_friction = 0.8;
 		static constexpr double k_elasticity = 0.5;
 		static constexpr double k_movement_epsilon = 0.1;
+
+		Particle() : active(false) {}
 
 		// Explode alive with random movement.
 		void pop(PopClock& h, double x, double y, Uint32 c) {
@@ -98,23 +101,53 @@ struct PopClock : public Hack::Base {
 				!obstacles(x, y+1));
 		}
 	};
-	std::array<Particle, k_particle_max> particles;
+	std::vector<Particle> particles;
 	/* Find the index of the next free (inactive) particle in the particles
 	 * array, or -1 if there are no free particles. Treats it in a circular
-	 * buffer-ish fashion to avoid repeated O(N) sweeps. */
+	 * buffer-ish fashion to avoid repeated O(N) sweeps.
+	 * (This is a dynamically resizing vector now, to handle drop-out spikes
+	 * better.) */
 	int find_free_particle() {
-		static int last_free_particle = 0;
+		static size_t last_free_particle = 0;
 		int found = -1;
-		for(int i = last_free_particle; i < k_particle_max; ++i) {
+		for(size_t i = last_free_particle; i < particles.size(); ++i) {
 			if(!particles[i].active) { found = i; break; }
 		}
 		if(found == -1) {
-			for(int i = 0; i < last_free_particle; ++i) {
+			for(size_t i = 0; i < last_free_particle; ++i) {
 				if(!particles[i].active) { found = i; break; }
+			}
+		}
+		// So long as we are allowed, grow the particle buffer.
+		// Note we're touching the vector size, not the allocation, although
+		// it will likely grow roughly in step with this.
+		if(found == -1 && (particles.size() < k_particle_max)) {
+			found = particles.size();
+			if(particles.size() < k_particle_min) {
+				// Init, and in theory super-aggressively-timed defrag.
+				particles.resize(k_particle_min);
+			} else {
+				// The upsize factor *must* be smaller than the utilization
+				// factor used to decide when we should defragment, else we
+				// get hilarious hysteresis.
+				// TODO: Just push_back() and lose all this cleverness.
+				particles.resize(particles.size() * 1.25);
 			}
 		}
 		if(found != -1) { last_free_particle = found + 1; }
 		return found;
+	}
+
+	void defragment_particles() {
+		// Note this doesn't touch the allocation; that's up to vector, and
+		// since we're not hurting for memory there's not much reason to be
+		// reallocating. We're reducing the logical size so we can iterate over
+		// less, so we may as well make it tight for now.
+		particles.erase(
+			std::remove_if(particles.begin(), particles.end(),
+				[](Particle& p){ return !p.active; }),
+			particles.end()
+		);
 	}
 
 	class StaticParticles {
@@ -516,8 +549,10 @@ struct PopClock : public Hack::Base {
 		}
 
 		// Simulate particles.
+		size_t active_particles = 0;
 		for(auto&& particle : particles) {
 			if(!particle.active) { continue; }
+			++active_particles;
 			if(!particle.simulate(
 				// The floor must always be solid to avoid travel out of bounds
 				// ...except we break that rule during dropout and catch it
@@ -539,6 +574,13 @@ struct PopClock : public Hack::Base {
 				// stop it since that's invalid and will crash during render.
 				particle.stop();
 			}
+		}
+
+		// Defragment particles if it's getting sparse.
+		if((active_particles > k_particle_min) &&
+			((active_particles * 2) < particles.size())) {
+			size_t sz = particles.size(); sz *= 1; // DEBUG for log-watch
+			defragment_particles();
 		}
 
 		// Simulate the static particle mass.
@@ -581,7 +623,11 @@ struct PopClock : public Hack::Base {
 		SDL_Flip(fb);
 	}
 
+#ifdef DEBUG_DROPOUT
+	Uint32 tick_duration() override { return 10; } // 100Hz
+#else
 	Uint32 tick_duration() override { return 100; } // 10Hz
+#endif
 };
 
 std::unique_ptr<Hack::Base> MakePopClock(SDL_Surface* framebuffer) {
