@@ -25,7 +25,7 @@ constexpr int k_defragment_factor = 2; // N times size vs number active.
 #ifdef DEBUG_DROPOUT
 constexpr double k_segment_drip_chance = 1.0;
 #else
-constexpr double k_segment_drip_chance = 0.15;
+constexpr double k_segment_drip_chance = 0.075;
 #endif
 constexpr int k_hue_rotation_minutes = 15;
 
@@ -161,8 +161,8 @@ struct PopClock : public Hack::Base {
 			if(fall) {
 				int i = try_pop(h, x, y, here);
 				if(i > 0) {
-					// No horizontal movement.
-					h.particles[i].dx = 0;
+					// Damped horizontal movement.
+					h.particles[i].dx *= 0.25;
 				}
 				return;
 			}
@@ -589,7 +589,7 @@ struct PopClock : public Hack::Base {
 #ifdef DEBUG_DROPOUT
 	Uint32 tick_duration() override { return 10; } // 100Hz
 #else
-	Uint32 tick_duration() override { return 100; } // 10Hz
+	Uint32 tick_duration() override { return 50; } // 20Hz
 #endif
 };
 
