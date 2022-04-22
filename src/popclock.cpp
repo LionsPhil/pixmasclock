@@ -27,7 +27,9 @@ constexpr double k_segment_drip_chance = 1.0;
 #else
 constexpr double k_segment_drip_chance = 0.075;
 #endif
-constexpr int k_hue_rotation_minutes = 15;
+constexpr int k_hue_rotation_minutes = 30;
+constexpr bool k_digits_drip = false;
+constexpr bool k_digits_pop = true;
 
 namespace Hack {
 struct PopClock : public Hack::Base {
@@ -488,7 +490,10 @@ struct PopClock : public Hack::Base {
 		for(int d = 0; d < 4; ++d) {
 			auto digit = digital_clock.get_digit(d);
 			for(int segment = 0; segment < 7; ++segment) {
-				if(digit.segment[segment] &&
+				bool present = digit.segment[segment];
+				// Drip from existing segments.
+				if(k_digits_drip &&
+					present &&
 					random_frac(generator) < k_segment_drip_chance) {
 
 					bool drip = random_coinflip(generator);
@@ -508,6 +513,23 @@ struct PopClock : public Hack::Base {
 							particles[i].dy *= -1;
 						}
 					}
+				}
+				// Pop from freshly missing segments.
+				if(k_digits_pop) {
+					static bool previous_segments[4][7];
+					if(!present && previous_segments[d][segment]) {
+						// This segment just vanished; pop it.
+						Sint16 x = digit.segrect[segment].x;
+						Sint16 y = digit.segrect[segment].y;
+						for(Uint16 yo=0; yo < digit.segrect[segment].h; ++yo) {
+							for(Uint16 xo=0; xo < digit.segrect[segment].w;
+								++xo) {
+								size_t i = find_free_particle();
+								particles[i].pop(*this, x+xo, y+yo, color);
+							}
+						}
+					}
+					previous_segments[d][segment] = present;
 				}
 			}
 		}
