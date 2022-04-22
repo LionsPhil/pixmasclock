@@ -47,7 +47,7 @@ struct PopClock : public Hack::Base {
 		double tv; // terminal velocity can be *less* than one.
 		Uint32 color; // Same format as partfb, i.e. ARGB.
 
-		static constexpr double k_gravity = 0.02;
+		static constexpr double k_gravity = 0.01;
 		static constexpr double k_friction = 0.8;
 		static constexpr double k_elasticity = 0.5;
 		static constexpr double k_movement_epsilon = 0.1;
@@ -469,7 +469,8 @@ struct PopClock : public Hack::Base {
 		// Get localtime and set the clock.
 		std::time_t now_epoch = std::time(nullptr);
 		std::tm* now = std::localtime(&now_epoch);
-		if(digital_clock.set_time(now)) {
+		bool clock_changed = digital_clock.set_time(now);
+		if(clock_changed) {
 			// This is a bit cheeky, making assumptions about digit layout,
 			// but saves us scanning the top chunk of the display for nothing.
 			static_particles.force_full_simulate_next(
@@ -492,8 +493,7 @@ struct PopClock : public Hack::Base {
 			for(int segment = 0; segment < 7; ++segment) {
 				bool present = digit.segment[segment];
 				// Drip from existing segments.
-				if(k_digits_drip &&
-					present &&
+				if(k_digits_drip && present &&
 					random_frac(generator) < k_segment_drip_chance) {
 
 					bool drip = random_coinflip(generator);
@@ -515,7 +515,7 @@ struct PopClock : public Hack::Base {
 					}
 				}
 				// Pop from freshly missing segments.
-				if(k_digits_pop) {
+				if(k_digits_pop && clock_changed) {
 					static bool previous_segments[4][7];
 					if(!present && previous_segments[d][segment]) {
 						// This segment just vanished; pop it.
@@ -526,6 +526,7 @@ struct PopClock : public Hack::Base {
 								++xo) {
 								size_t i = find_free_particle();
 								particles[i].pop(*this, x+xo, y+yo, color);
+								particles[i].dy = -abs(particles[i].dy);
 							}
 						}
 					}
@@ -611,7 +612,7 @@ struct PopClock : public Hack::Base {
 #ifdef DEBUG_DROPOUT
 	Uint32 tick_duration() override { return 10; } // 100Hz
 #else
-	Uint32 tick_duration() override { return 50; } // 20Hz
+	Uint32 tick_duration() override { return 33; } // 30Hz
 #endif
 };
 
