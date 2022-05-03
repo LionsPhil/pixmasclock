@@ -18,18 +18,14 @@
 
 #include "hack.hpp"
 
-// #define DEBUG_DROPOUT
-
 constexpr size_t k_defragment_threshold = 2048; // Don't defrag to < this.
 constexpr int k_defragment_factor = 2; // N times size vs number active.
-#ifdef DEBUG_DROPOUT
-constexpr double k_segment_drip_chance = 1.0;
-#else
 constexpr double k_segment_drip_chance = 0.075;
-#endif
 constexpr int k_hue_rotation_minutes = 30;
 constexpr bool k_digits_drip = false;
 constexpr bool k_digits_pop = true;
+constexpr bool k_explode_on_hour = true;
+constexpr bool k_debug_fastclock = false;
 
 namespace Hack {
 struct PopClock : public Hack::Base {
@@ -247,6 +243,19 @@ struct PopClock : public Hack::Base {
 
 		void force_full_simulate_next(int up_to) {
 			needs_sim_up_to = up_to;
+		}
+
+		void pop_all(PopClock& h) {
+			for(int y = 0; y < h_; ++y) {
+				for(int x = 0; x < w_; ++x) {
+					Uint32 here = unsafe_at(x, y); // We're iterating in-bounds
+					if(here > 0) {
+						try_pop(h, x, y, here);
+					}
+				}
+			}
+			// Cancel all sim; we've just wiped all static particles away.
+			needs_sim_up_to = h_;
 		}
 	};
 	StaticParticles static_particles;
@@ -469,6 +478,10 @@ struct PopClock : public Hack::Base {
 		// Get localtime and set the clock.
 		std::time_t now_epoch = std::time(nullptr);
 		std::tm* now = std::localtime(&now_epoch);
+		if(k_debug_fastclock) {
+			now->tm_hour = now->tm_min % 24;
+			now->tm_min = now->tm_sec;
+		}
 		bool clock_changed = digital_clock.set_time(now);
 		if(clock_changed) {
 			// This is a bit cheeky, making assumptions about digit layout,
@@ -479,9 +492,14 @@ struct PopClock : public Hack::Base {
 
 		// Drop out on the hour for 15 seconds.
 		bool dropout = now->tm_min == 0 && now->tm_sec < 15;
-#ifdef DEBUG_DROPOUT
-		dropout = now->tm_sec < 15;
-#endif
+
+		if(k_explode_on_hour) {
+			static int last_hour = -1;
+			if(last_hour != now->tm_hour) {
+				static_particles.pop_all(*this);
+				last_hour = now->tm_hour;
+			}
+		}
 
 		// Perhaps spawn some particles dripping/launching off of segments.
 		SDL_Color& color_struct =
@@ -609,11 +627,7 @@ struct PopClock : public Hack::Base {
 		SDL_Flip(fb);
 	}
 
-#ifdef DEBUG_DROPOUT
-	Uint32 tick_duration() override { return 10; } // 100Hz
-#else
 	Uint32 tick_duration() override { return 33; } // 30Hz
-#endif
 };
 
 std::unique_ptr<Hack::Base> MakePopClock(SDL_Surface* framebuffer) {
