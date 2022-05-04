@@ -25,7 +25,7 @@ constexpr int k_hue_rotation_minutes = 30;
 constexpr bool k_digits_drip = false;
 constexpr bool k_digits_pop = true;
 constexpr bool k_explode_on_hour = true;
-constexpr bool k_debug_fastclock = true;
+constexpr bool k_debug_fastclock = false;
 
 namespace Hack {
 struct PopClock : public Hack::Base {
