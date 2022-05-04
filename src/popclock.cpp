@@ -25,7 +25,7 @@ constexpr int k_hue_rotation_minutes = 30;
 constexpr bool k_digits_drip = false;
 constexpr bool k_digits_pop = true;
 constexpr bool k_explode_on_hour = true;
-constexpr bool k_debug_fastclock = false;
+constexpr bool k_debug_fastclock = true;
 
 namespace Hack {
 struct PopClock : public Hack::Base {
@@ -131,11 +131,13 @@ struct PopClock : public Hack::Base {
 		// Convert to a dynamic particle, if there is one free, and clear the
 		// static mass here if so.
 		// Returns the index of the new particle (or -1 if failed).
-		int try_pop(PopClock& h, int x, int y, Uint32 here) {
+		int try_pop(PopClock& h, int x, int y, Uint32 here, bool upward=false) {
 			size_t i = h.find_free_particle();
 			h.particles[i].pop(h, x, y, here);
-			// Force downward momentum in every case.
+			// Force downward momentum, unless we want to force upward.
+			// (We never want random; sand is falling, or pop_all() exploding.)
 			h.particles[i].dy = abs(h.particles[i].dy);
+			if(upward) { h.particles[i].dy *= -1; }
 			set(x, y, 0);
 			return i;
 		}
@@ -250,7 +252,7 @@ struct PopClock : public Hack::Base {
 				for(int x = 0; x < w_; ++x) {
 					Uint32 here = unsafe_at(x, y); // We're iterating in-bounds
 					if(here > 0) {
-						try_pop(h, x, y, here);
+						try_pop(h, x, y, here, true);
 					}
 				}
 			}
