@@ -25,7 +25,7 @@ constexpr int k_hue_rotation_minutes = 30;
 constexpr bool k_digits_drip = false;
 constexpr bool k_digits_pop = true;
 constexpr bool k_explode_on_hour = true;
-constexpr bool k_debug_fastclock = false;
+constexpr bool k_debug_fastclock = true;
 
 namespace Hack {
 struct PopClock : public Hack::Base {
@@ -377,6 +377,21 @@ struct PopClock : public Hack::Base {
 				throw std::runtime_error("failed to set color key");
 			}
 			return s.release();
+		}
+
+		// Do a big dirty sigmoid function hack to make hues more red.
+		// Hand-tuned constants to get *approximately* [0,1]->[0,1] ranges,
+		// although strictly sigmoid is [-inf,inf]->[0,1].
+		// It's too aggressive, though.
+		double big_dirty_sigmoid(double x) {
+			// In Wolfram Alpha-ese:
+			// y=Divide[1,1+Power[4,-8\(40)x-0.5\(41)]]
+			return 1.0 / (1.0 + pow(4.0, -8.0 * (x - 0.5)));
+		}
+
+		// This is better but ultimately I preferred leaving the hue alone.
+		double big_dirty_sin(double x) {
+			return 0.5 + 0.5 * (sin(M_PI * (x - 0.5)));
 		}
 
 		void hue_to_rgb(double h, Uint8& out_r, Uint8& out_g, Uint8& out_b) {
