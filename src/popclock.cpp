@@ -36,6 +36,7 @@ struct PopClock : public Hack::Base {
 	std::default_random_engine generator;
 	std::uniform_int_distribution<int> random_coinflip;
 	std::uniform_real_distribution<double> random_frac;
+	bool needs_paint; // Something has changed to render.
 
 	struct Particle {
 		bool active;
@@ -144,11 +145,12 @@ struct PopClock : public Hack::Base {
 
 		// This is mostly split out for profiling reasons (when not inline).
 		// If it's being called, "here" is nonzero.
-		inline void simulate_one(PopClock& h,
+		// Returns if it did anything
+		inline bool simulate_one(PopClock& h,
 			std::function<bool(int,int)> obstacles, bool drop_bottom,
 			int x, int y, Uint32 here) {
 			// Hit check; get crushed by obstacles
-			if(obstacles(x, y)) { set(x, y, 0); return; }
+			if(obstacles(x, y)) { set(x, y, 0); return true; }
 
 			// Fall check
 			bool fall = false;
@@ -164,7 +166,7 @@ struct PopClock : public Hack::Base {
 					// Damped horizontal movement.
 					h.particles[i].dx *= 0.25;
 				}
-				return;
+				return true;
 			}
 			// We shouldn't be simming the bottom row beyond this point!
 			// That would mean we got run on it without drop_bottom set, which
@@ -182,22 +184,23 @@ struct PopClock : public Hack::Base {
 				if(down_right == 0 && !down_right_obstacle) {
 					// Split, 3-way flow. Go either way!
 					try_pop(h, x, y, here);
-					return;
+					return true;
 				} else {
 					// Spill left
 					int i = try_pop(h, x, y, here);
 					if(i >= 0)
 						{ h.particles[i].dx = -abs(h.particles[i].dx); }
 				}
-				return;
+				return true;
 			} else if (down_right == 0 &&
 				!down_right_obstacle) {
 				// Spill right
 				int i = try_pop(h, x, y, here);
 				if(i >= 0)
 					{ h.particles[i].dx = abs(h.particles[i].dx); }
-				return;
+				return true;
 			}
+			return false;
 		}
 
 		inline Uint32& unsafe_at(int x, int y) {
@@ -221,8 +224,9 @@ struct PopClock : public Hack::Base {
 			needs_sim_up_to = std::min(needs_sim_up_to, std::max(0, y - 1));
 		}
 
-		void simulate(PopClock& h, bool drop_bottom,
+		bool simulate(PopClock& h, bool drop_bottom,
 			std::function<bool(int,int)> obstacles) {
+			bool done_something = false;
 			// The bottom row is usually completely static once formed, but
 			// when drop_bottom is true, we let it fall away.
 			int start_y = h_ - (drop_bottom ? 1 : 2);
@@ -237,10 +241,12 @@ struct PopClock : public Hack::Base {
 				for(int x = 0; x < w_; ++x) {
 					Uint32 here = unsafe_at(x, y); // We're iterating in-bounds
 					if(here > 0) {
-						simulate_one(h, obstacles, drop_bottom, x, y, here);
+						done_something |=
+							simulate_one(h, obstacles, drop_bottom, x, y, here);
 					}
 				}
 			}
+			return done_something;
 		}
 
 		void force_full_simulate_next(int up_to) {
@@ -474,6 +480,7 @@ struct PopClock : public Hack::Base {
 		partfb(nullptr, SDL_FreeSurface),
 		random_coinflip(0, 1),
 		random_frac(0, 1),
+		needs_paint(true),
 		have_live_particles(false),
 		static_particles(framebuffer->w, framebuffer->h),
 		digital_clock(framebuffer->w, framebuffer->h) {
@@ -492,6 +499,7 @@ struct PopClock : public Hack::Base {
 	}
 
 	void simulate() override {
+		static int last_second;
 		auto w = fb->w, h = fb->h;
 		// Get localtime and set the clock.
 		std::time_t now_epoch = std::time(nullptr);
@@ -506,6 +514,13 @@ struct PopClock : public Hack::Base {
 			// but saves us scanning the top chunk of the display for nothing.
 			static_particles.force_full_simulate_next(
 				digital_clock.get_digit(0).segrect[0].y - 1);
+			needs_paint = true;
+		}
+		if(last_second != now->tm_sec) {
+			// Bit of an info leak that we know the clock makes quiet visual
+			// changes every second (its palette), but not shape changes.
+			needs_paint = true;
+			last_second = now->tm_sec;
 		}
 
 		// Drop out on the hour for 15 seconds.
@@ -613,14 +628,18 @@ struct PopClock : public Hack::Base {
 				((active_particles * k_defragment_factor) < particles.size())) {
 				defragment_particles();
 			}
+
+			// We *had* live particles, so we should draw the impact of them.
+			needs_paint = true;
 		}
 
 		// Simulate the static particle mass.
-		static_particles.simulate(*this, dropout,
+		needs_paint |= static_particles.simulate(*this, dropout,
 			[&](auto x, auto y){return digital_clock.solid_at(x, y);});
 	}
 
 	void render() override {
+		if(!needs_paint) { return; }
 		int w = partfb->w;
 		int h = partfb->h;
 		if(SDL_MUSTLOCK(partfb.get())) { SDL_LockSurface(partfb.get()); }
@@ -653,6 +672,7 @@ struct PopClock : public Hack::Base {
 		SDL_BlitSurface(digital_clock.rendered(), nullptr, fb, nullptr);
 		//SDL_BlitSurface(prev_clock.get(), nullptr, fb, nullptr); // DEBUG
 		SDL_Flip(fb);
+		needs_paint = false;
 	}
 
 	Uint32 tick_duration() override { return 33; } // 30Hz
