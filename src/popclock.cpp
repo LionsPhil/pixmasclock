@@ -131,13 +131,11 @@ struct PopClock : public Hack::Base {
 		// Convert to a dynamic particle, if there is one free, and clear the
 		// static mass here if so.
 		// Returns the index of the new particle (or -1 if failed).
-		int try_pop(PopClock& h, int x, int y, Uint32 here, bool upward=false) {
+		int try_pop(PopClock& h, int x, int y, Uint32 here, bool down=true) {
 			size_t i = h.find_free_particle();
 			h.particles[i].pop(h, x, y, here);
-			// Force downward momentum, unless we want to force upward.
-			// (We never want random; sand is falling, or pop_all() exploding.)
-			h.particles[i].dy = abs(h.particles[i].dy);
-			if(upward) { h.particles[i].dy *= -1; }
+			// Force downward momentum.
+			if(down) { h.particles[i].dy = abs(h.particles[i].dy); }
 			set(x, y, 0);
 			return i;
 		}
@@ -252,7 +250,7 @@ struct PopClock : public Hack::Base {
 				for(int x = 0; x < w_; ++x) {
 					Uint32 here = unsafe_at(x, y); // We're iterating in-bounds
 					if(here > 0) {
-						try_pop(h, x, y, here, true);
+						try_pop(h, x, y, here, false);
 					}
 				}
 			}
