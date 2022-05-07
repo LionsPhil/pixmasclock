@@ -18,7 +18,7 @@
 
 #include "hack.hpp"
 
-constexpr size_t k_defragment_threshold = 2048; // Don't defrag to < this.
+constexpr size_t k_defragment_threshold = 128; // Don't defrag to < this.
 constexpr int k_defragment_factor = 2; // N times size vs number active.
 constexpr double k_segment_drip_chance = 0.075;
 constexpr int k_hue_rotation_minutes = 30;
@@ -100,6 +100,7 @@ struct PopClock : public Hack::Base {
 		}
 	};
 	std::vector<Particle> particles;
+	bool have_live_particles;
 
 	/* Get an index for the next free (inactive) particle in the particles
 	 * vector. In past versions this did clever circular buffer stuff with
@@ -107,6 +108,7 @@ struct PopClock : public Hack::Base {
 	 * Can no longer return -1 for no free particles. Return is always valid. */
 	size_t find_free_particle() {
 		particles.emplace_back();
+		have_live_particles = true;
 		return particles.size() - 1;
 	}
 
@@ -472,6 +474,7 @@ struct PopClock : public Hack::Base {
 		partfb(nullptr, SDL_FreeSurface),
 		random_coinflip(0, 1),
 		random_frac(0, 1),
+		have_live_particles(false),
 		static_particles(framebuffer->w, framebuffer->h),
 		digital_clock(framebuffer->w, framebuffer->h) {
 
@@ -570,36 +573,46 @@ struct PopClock : public Hack::Base {
 
 		// Simulate particles.
 		size_t active_particles = 0;
-		for(auto&& particle : particles) {
-			if(!particle.active) { continue; }
-			++active_particles;
-			if(!particle.simulate(
-				// The floor must always be solid to avoid travel out of bounds
-				// ...except we break that rule during dropout and catch it
-				// below. We still need to not doing solid_at() checks OOB.
-				[&](auto x, auto y) {
-					if(dropout && y >= h) { return false; }
-					return
-						x < 0 || x >= w ||
-						y < 0 || y >= h ||
-						static_particles.get(x, y) != 0 ||
-						digital_clock.solid_at(x, y);
-				})) {
-				// Move this particle to the static layer.
-				static_particles.set(particle.x, particle.y, particle.color);
-				particle.stop();
+		if(have_live_particles) {
+			for(auto&& particle : particles) {
+				if(!particle.active) { continue; }
+				++active_particles;
+				if(!particle.simulate(
+					// The floor must always be solid to avoid travel out of
+					// bounds...except we break that rule during dropout and
+					// catch it below. We still need to not do solid_at()
+					// checks OOB.
+					[&](auto x, auto y) {
+						if(dropout && y >= h) { return false; }
+						return
+							x < 0 || x >= w ||
+							y < 0 || y >= h ||
+							static_particles.get(x, y) != 0 ||
+							digital_clock.solid_at(x, y);
+					})) {
+					// Move this particle to the static layer.
+					static_particles.set(particle.x, particle.y, particle.color);
+					particle.stop();
+				}
+				if(dropout && particle.y >= h) {
+					// We've let this particle fall out of bounds, and *must*
+					// now stop it since that's invalid and will crash during
+					// render.
+					particle.stop();
+				}
 			}
-			if(dropout && particle.y >= h) {
-				// We've let this particle fall out of bounds, and *must* now
-				// stop it since that's invalid and will crash during render.
-				particle.stop();
-			}
-		}
 
-		// Defragment particles if it's getting sparse.
-		if((particles.size() > k_defragment_threshold) &&
-			((active_particles * k_defragment_factor) < particles.size())) {
-			defragment_particles();
+			// Stop simulating particles on future ticks if we don't have any
+			// active ones now. This will get reset by something using
+			// find_free_particle() to generate a new one.
+			if(active_particles == 0) { have_live_particles = false; }
+
+			// Defragment particles if it's getting sparse.
+			// (Don't bother if it's *empty*.)
+			if((particles.size() > k_defragment_threshold) &&
+				((active_particles * k_defragment_factor) < particles.size())) {
+				defragment_particles();
+			}
 		}
 
 		// Simulate the static particle mass.
