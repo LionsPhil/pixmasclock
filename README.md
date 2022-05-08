@@ -4,6 +4,8 @@ A digital clock for a Raspberry Pi with a framebuffer display, with festive snow
 
 **Disclaimer:** This is pretty much made just for me as a weekend(s) project, and is thrown online in case it's handy (or cool) to someone else. Expect to have to hack it about a bit to make it work well for your case. (Likewise it's not the cleanest codebase in the world, ahem.)
 
+**Note:** During less-festive times (like, the time of writing at this commit) I tend to reconfigure it to do something, well, less-festive. It's currently doing a cool thing with clock segments popping into rainbow sand as they change instead of snow. Fiddle with the factory functions in `main` to pick something else.
+
 ## Demo
 
 [![Snow gathering on clock digits, that falls from them, and off the bottom of the screen, as the hour changes.](http://img.youtube.com/vi/hGhVkTMxfyE/0.jpg)](https://www.youtube.com/watch?v=hGhVkTMxfyE "Watch the hour change on YouTube")
