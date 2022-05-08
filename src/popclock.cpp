@@ -77,27 +77,39 @@ struct PopClock : public Hack::Base {
 			// Work out potential new location (prime).
 			double xp = x + dx;
 			double yp = y + dy;
+			bool blocked_x = false;
+			bool blocked_y = false;
 
 			if(obstacles(xp, yp)) {
 				// We would hit something; bounce instead.
 				if(obstacles(xp, y)) { // Colliding horizontally.
 					dx *= -k_elasticity;
 					xp = x;
+					blocked_x = true;
 				}
 				if(obstacles(x, yp)) { // Colliding vertically.
 					dy *= -k_elasticity;
 					dx *= k_friction; // Don't slide along the bottom freely.
 					yp = y;
+					blocked_y = true;
 				}
 			}
 			// Move to new space
 			x = xp; y = yp;
+			// Particles are still alive if:
+			//  - they have above-epsilon velocity
+			bool moving =
+				(abs(dx) > k_movement_epsilon) ||
+				(abs(dy) > k_movement_epsilon);
+			//  - they have open space below them to fall into; gravity should
+			//    eventually win even if they're grinding on the X axis
+			bool can_fall = !obstacles(x, y+1);
+			//  - they aren't jammed into an obstacle such it's fully ignored
+			bool making_progress = !blocked_x || !blocked_y;
 			// Accellerate due to gravity up to terminal.
 			dy = std::min(tv, dy + k_gravity);
-			// Staticize fully stationary particles unless they can fall.
-			return (abs(dx) > k_movement_epsilon ||
-				abs(dy) > k_movement_epsilon ||
-				!obstacles(x, y+1));
+			// And return the activity judgement.
+			return (moving || can_fall) && making_progress;
 		}
 	};
 	std::vector<Particle> particles;
@@ -162,10 +174,8 @@ struct PopClock : public Hack::Base {
 			}
 			if(fall) {
 				int i = try_pop(h, x, y, here);
-				if(i > 0) {
-					// Damped horizontal movement.
-					h.particles[i].dx *= 0.25;
-				}
+				// Damped horizontal movement.
+				h.particles[i].dx *= 0.25;
 				return true;
 			}
 			// We shouldn't be simming the bottom row beyond this point!
@@ -188,16 +198,14 @@ struct PopClock : public Hack::Base {
 				} else {
 					// Spill left
 					int i = try_pop(h, x, y, here);
-					if(i >= 0)
-						{ h.particles[i].dx = -abs(h.particles[i].dx); }
+					h.particles[i].dx = -abs(h.particles[i].dx);
 				}
 				return true;
 			} else if (down_right == 0 &&
 				!down_right_obstacle) {
 				// Spill right
 				int i = try_pop(h, x, y, here);
-				if(i >= 0)
-					{ h.particles[i].dx = abs(h.particles[i].dx); }
+				h.particles[i].dx = abs(h.particles[i].dx);
 				return true;
 			}
 			return false;
