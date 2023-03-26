@@ -28,6 +28,7 @@ namespace Hack {
 	std::unique_ptr<Hack::Base> MakeSnowInt(SDL_Surface* framebuffer);
 	std::unique_ptr<Hack::Base> MakeSnowClock(SDL_Surface* framebuffer);
 	std::unique_ptr<Hack::Base> MakePopClock(SDL_Surface* framebuffer);
+	std::unique_ptr<Hack::Base> MakeColorCycle(SDL_Surface* framebuffer);
 };
 
 #endif
