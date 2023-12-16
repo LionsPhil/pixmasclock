@@ -12,8 +12,6 @@
 #include <random>
 #include <vector>
 
-#include <SDL.h>
-
 #include "hack.hpp"
 
 constexpr int k_snowflake_count = 1024;
@@ -138,7 +136,8 @@ struct DriftingSnow : public Hack::Base {
 			if(flake.y > fb->h) { flake.reset_at_top(*this); }
 		}
 	}
-	void render() override {
+	bool render(SDL_Surface* framebuffer) override {
+		fb = framebuffer;
 		// Dirty regions only work if we can unpaint previous snowflake
 		// positions, but separate simulate() makes that hard.
 		SDL_FillRect(fb, 0, greyscale[0]);
@@ -159,7 +158,7 @@ struct DriftingSnow : public Hack::Base {
 		}
 
 		if(SDL_MUSTLOCK(fb)) { SDL_UnlockSurface(fb); }
-		SDL_Flip(fb);
+		return true;
 	}
 
 	Uint32 tick_duration() override { return 100; } // 10Hz

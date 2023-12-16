@@ -6,11 +6,14 @@
                 "${workspaceFolder}/**",
                 "/usr/include/SDL"
             ],
-            "defines": ["DESKTOP"],
+            "defines": [
+                "DESKTOP"
+            ],
             "compilerPath": "/usr/bin/clang",
             "cStandard": "c11",
             "cppStandard": "c++14",
-            "intelliSenseMode": "clang-x64"
+            "intelliSenseMode": "${default}",
+            "configurationProvider": "ms-vscode.makefile-tools"
         }
     ],
     "version": 4

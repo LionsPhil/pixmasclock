@@ -14,8 +14,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include <SDL.h>
-
 #include "hack.hpp"
 
 constexpr size_t k_defragment_threshold = 128; // Don't defrag to < this.
@@ -369,9 +367,9 @@ struct PopClock : public Hack::Base {
 		SDL_Surface* make_surface(int w, int h) {
 			std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> s(
 				SDL_CreateRGBSurface(SDL_SWSURFACE | SDL_ASYNCBLIT,
-					w, h, 8, 0x00ff0000, 0x0000ff00, 0x000000ff, 0),
+					w, h, 8, 0, 0, 0, 0),
 				SDL_FreeSurface);
-			if(s.get() == nullptr) { throw std::bad_alloc(); }
+			if(s.get() == nullptr) { throw std::runtime_error(SDL_GetError()); }
 			if(SDL_MUSTLOCK(s.get())) {
 				// This is bad, because solid_at will randomly fail (SDL is
 				// allowed to make the pixels member of lockable surfaces
@@ -389,9 +387,18 @@ struct PopClock : public Hack::Base {
 			 * https://discourse.libsdl.org/t/pixels-getting-set-to-null/9811/10
 			 * But we're not any more, whee!
 			 */
-			if(SDL_SetColorKey(s.get(), SDL_SRCCOLORKEY|SDL_RLEACCEL, 0) != 0) {
+#if SDLVERSION == 1
+			if(SDL_SetColorKey(s.get(), SDL_SRCCOLORKEY | SDL_RLEACCEL, 0) != 0) {
 				throw std::runtime_error("failed to set color key");
 			}
+#else
+			if(SDL_SetSurfaceRLE(s.get(), SDL_TRUE) != 0) {
+				throw std::runtime_error("failed to set RLE");
+			}
+			if(SDL_SetColorKey(s.get(), SDL_TRUE, 0) != 0) {
+				throw std::runtime_error("failed to set color key");
+			}
+#endif
 			return s.release();
 		}
 
@@ -646,8 +653,10 @@ struct PopClock : public Hack::Base {
 			[&](auto x, auto y){return digital_clock.solid_at(x, y);});
 	}
 
-	void render() override {
-		if(!needs_paint) { return; }
+	bool render(SDL_Surface* framebuffer) override {
+		fb = framebuffer;
+		if(!needs_paint) { return false; }
+
 		int w = partfb->w;
 		int h = partfb->h;
 		if(SDL_MUSTLOCK(partfb.get())) { SDL_LockSurface(partfb.get()); }
@@ -679,8 +688,8 @@ struct PopClock : public Hack::Base {
 		// Merge in the digital clock, which is color-keyed for transparency.
 		SDL_BlitSurface(digital_clock.rendered(), nullptr, fb, nullptr);
 		//SDL_BlitSurface(prev_clock.get(), nullptr, fb, nullptr); // DEBUG
-		SDL_Flip(fb);
 		needs_paint = false;
+		return true;
 	}
 
 	Uint32 tick_duration() override { return 33; } // 30Hz

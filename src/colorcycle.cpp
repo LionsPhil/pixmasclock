@@ -10,8 +10,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include <SDL.h>
-
 #include "hack.hpp"
 
 namespace Hack {
@@ -53,7 +51,9 @@ struct ColorCycle : public Hack::Base {
 		}*/
 	}
 
-	void render() override {
+	bool render(SDL_Surface* framebuffer) override {
+		fb = framebuffer;
+
 		/*if(black) {
 			SDL_FillRect(fb, nullptr,
 				SDL_MapRGB(fb->format, 0, 0, 0));
@@ -78,7 +78,7 @@ struct ColorCycle : public Hack::Base {
 		b = /*b ? 0 :*/ 255;
 		SDL_FillRect(fb, nullptr,
 			SDL_MapRGB(fb->format, r, g, b));
-		SDL_Flip(fb);
+		return true;
 	}
 
 	Uint32 tick_duration() override { return 33; } // 30Hz

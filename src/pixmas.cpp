@@ -3,8 +3,8 @@
 #include <iostream>
 #include <memory>
 
-#include <SDL.h>
-
+// Force VSCode to know this is going to get the version 1 define here.
+#define SDLVERSION 1
 #include "hack.hpp"
 
 // This is just used to get SDL init/deinit via RAII for nice error handling
@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
 				tickerror -= hack->tick_duration();
 				hack->simulate();
 			} while(tickerror >= hack->tick_duration());
-			hack->render();
+			if(hack->render(fb)) { SDL_Flip(fb); }
 		} else {
 			/// Have a nap until we actually have at least one tick to run.
 			SDL_Delay(hack->tick_duration());

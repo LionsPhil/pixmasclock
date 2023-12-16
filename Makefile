@@ -31,9 +31,13 @@ CPPFLAGSEX = $(CFLAGSEX)
 #CPPFLAGSEX = $(CFLAGSEX)
 # LDFLAGSEX =
 
+ifndef SDLVERSION
+	SDLVERSION=2
+endif
+
 # SOURCES ---------------------------------------------------------------------
-CPPSOURCES = pixmas.cpp \
-             snowfp.cpp snowint.cpp snowclock.cpp popclock.cpp colorcycle.cpp
+# Main changes based on SDL version so is inferred below.
+CPPSOURCES = snowfp.cpp snowint.cpp snowclock.cpp popclock.cpp colorcycle.cpp
    HEADERS = hack.hpp
 # Anything else you want put in the distributed version
  EXTRADIST = Makefile README.md
@@ -42,9 +46,17 @@ CPPSOURCES = pixmas.cpp \
 OBJECTS = $(CPPSOURCES:%.cpp=%.o)
 NOTOBJECTS = $(filter-out %.o, $(OBJECTS))
 ifneq ($(NOTOBJECTS),)
-    $(error OBJECTS contains non-object(s) $(NOTOBJECTS))
+	$(error OBJECTS contains non-object(s) $(NOTOBJECTS))
 endif
 SOURCES = $(CPPSOURCES)
+
+ifeq ($(SDLVERSION),1)
+	SDLCONFIG = sdl-config
+	CPPSOURCES += pixmas.cpp
+else
+	SDLCONFIG = sdl2-config
+	CPPSOURCES += pixmas2.cpp
+endif
 
 # All files which are sources, /including/ non-compiled ones (e.g. headers)
 ALLSOURCESMANU = $(SOURCES) $(HEADERS)
@@ -57,14 +69,14 @@ CPPWFLAGS = $(WARNFLAGS)
 # Tool flags
 # Don't make CXXFLAGS include CFLAGS or it'll get duplicate CFLAGSEX
 CPPFLAGS  = $(CPPWFLAGS) -std=c++14 -pedantic -DVERSION='"$(VERSION)"' \
-            `sdl-config --cflags` $(CPPFLAGSEX)
-LDFLAGS   = `sdl-config --libs` -lm $(LDFLAGSEX)
+            `$(SDLCONFIG) --cflags` -DSDLVERSION='$(SDLVERSION)' $(CPPFLAGSEX)
+LDFLAGS   = `$(SDLCONFIG) --libs` -lm $(LDFLAGSEX)
 
 EXTRACDEPS = Makefile $(HEADERS)
 
 # Kinda sloppy autodetection that we should fake the display resolution.
 ifeq ($(shell uname -m),x86_64)
-    CPPFLAGS += -DDESKTOP
+	CPPFLAGS += -DDESKTOP
 endif
 
 # MAKEFILE METADATA AND MISCELLANY --------------------------------------------
@@ -127,6 +139,7 @@ work: $(SOURCES) $(HEADERS)
 
 # Build environment information
 env:
+	@$(ECHO) "SDL config:      : $(SDLCONFIG)"
 	@$(ECHO) "C++ compiler     : $(CPPC)"
 	@$(ECHO) "Linker           : $(LD)"
 	@$(ECHO) "C++ compile flags: $(CPPFLAGS)"

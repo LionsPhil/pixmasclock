@@ -13,8 +13,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include <SDL.h>
-
 #include "hack.hpp"
 
 constexpr int k_snowflake_count = 1024 * 2;
@@ -119,7 +117,7 @@ struct SnowClock : public Hack::Base {
 						// Hit check; get crushed by obstacles
 						if(obstacles(x, y)) { here = 0; }
 
-						// Fall check 
+						// Fall check
 						// (An alternative would be to respawn them as flakes)
 						Uint8& down = at(x, y+1);
 						if((down < here) && !obstacles(x, y+1)) {
@@ -223,8 +221,8 @@ struct SnowClock : public Hack::Base {
 			// Make a framebuffer for the clock graphics, which can also be read
 			// back for its physics. Only uses two colors.
 			fb.reset(SDL_CreateRGBSurface(SDL_SWSURFACE | SDL_ASYNCBLIT,
-				w, h, 8, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000));
-			if(fb.get() == nullptr) { throw std::bad_alloc(); }
+				w, h, 8, 0, 0, 0, 0));
+			if(fb.get() == nullptr) { throw std::runtime_error(SDL_GetError()); }
 			bytes_per_pixel_ = fb.get()->format->BytesPerPixel;
 			pitch_ = fb.get()->pitch;
 			// Third palette entry is for stupid debugging tricks.
@@ -232,11 +230,20 @@ struct SnowClock : public Hack::Base {
 			if(SDL_SetColors(fb.get(), pal, 0, 3) != 1) {
 				throw std::runtime_error("failed to set clock palette");
 			}
+#if SDLVERSION == 1
 			if(SDL_SetColorKey(fb.get(), SDL_SRCCOLORKEY | SDL_RLEACCEL, 0) != 0) {
 				throw std::runtime_error("failed to set color key");
 			}
+#else
+			if(SDL_SetSurfaceRLE(fb.get(), SDL_TRUE) != 0) {
+				throw std::runtime_error("failed to set RLE");
+			}
+			if(SDL_SetColorKey(fb.get(), SDL_TRUE, 0) != 0) {
+				throw std::runtime_error("failed to set color key");
+			}
+#endif
 		}
-		
+
 		void set_time(const std::tm* tm) {
 			// This is an optimization to avoid recalculating the same time each
 			// tick, which assumes we'll never jump to the same second in some
@@ -329,9 +336,9 @@ struct SnowClock : public Hack::Base {
 		/* Making SDL format-convert means we don't have to at write time, and
 		 * can just slap down 32-bit values. */
 		snowfb.reset(SDL_CreateRGBSurface(SDL_SWSURFACE | SDL_ASYNCBLIT,
-			fb->w, fb->h, 8, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000));
+			fb->w, fb->h, 8, 0, 0, 0, 0));
 		if(snowfb.get() == nullptr) {
-			throw std::bad_alloc();
+			throw std::runtime_error(SDL_GetError());
 		}
 
 		struct SDL_Color greys[256];
@@ -472,7 +479,9 @@ struct SnowClock : public Hack::Base {
 				std::placeholders::_1, std::placeholders::_2) */
 		++tick;
 	}
-	void render() override {
+
+	bool render(SDL_Surface* framebuffer) override {
+		fb = framebuffer;
 		// Dirty regions only work if we can unpaint previous snowflake
 		// positions, but separate simulate() makes that hard.
 		int w = snowfb->w;
@@ -523,7 +532,7 @@ struct SnowClock : public Hack::Base {
 		SDL_BlitSurface(snowfb.get(), nullptr, fb, nullptr);
 		// Merge in the digital clock, which is color-keyed for transparency.
 		SDL_BlitSurface(digital_clock.rendered(), nullptr, fb, nullptr);
-		SDL_Flip(fb);
+		return true;
 	}
 
 	Uint32 tick_duration() override { return 100; } // 10Hz
