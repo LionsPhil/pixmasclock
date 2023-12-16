@@ -50,11 +50,11 @@ int main(int argc, char** argv) {
 
 	// Pick one of the factory functions from hack.hpp here.
 	// TODO: Allow picking at startup or runtime.
-	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowFP(fb);
-	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowInt(fb);
-	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowClock(fb);
-	std::unique_ptr<Hack::Base> hack = Hack::MakePopClock(fb);
-	//std::unique_ptr<Hack::Base> hack = Hack::MakeColorCycle(fb);
+	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowFP(fb->w, fb->h);
+	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowInt(fb->w, fb->h);
+	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowClock(fb->w, fb->h);
+	std::unique_ptr<Hack::Base> hack = Hack::MakePopClock(fb->w, fb->h);
+	//std::unique_ptr<Hack::Base> hack = Hack::MakeColorCycle(fb->w, fb->h);
 
 	Uint32 tickerror = 0;
 	Uint32 ticklast = SDL_GetTicks();

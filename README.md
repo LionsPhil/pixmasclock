@@ -22,7 +22,13 @@ Still, SDL means this should target anything. It's *deliberately* SDL 1.2 code s
 
 ## Building
 
-You want Debian/Rapsbian packages `clang libsdl1.2-dev`. Either `make` or open in Visual Studio Code.
+You want Debian/Rapsbian packages `clang libsdl1.2-dev`, then `SDLVERSION=1 make`.
+
+The default is now SDL version 2, `libsdl2-dev`.
+_This does not support framebuffers and won't work with the Tontec, which is why SDL 1 is still supported._
+But in theory it works in ways more amicable to modern graphics setups if you're using something with a 3D chip.
+
+Visual Studio Code can run builds, using whichever version is set in the Makefile (there's some hacky overrides that `pixmas{,2}.cpp` will always assert the right version for themselves).
 
 ## Running
 

@@ -14,7 +14,6 @@
 
 namespace Hack {
 struct ColorCycle : public Hack::Base {
-	SDL_Surface* fb;
 	double hue;
 	bool black;
 
@@ -40,8 +39,8 @@ struct ColorCycle : public Hack::Base {
 		out_b = 255 * b;
 	}
 
-	ColorCycle(SDL_Surface* framebuffer)
-		: fb(framebuffer), hue(0.0), black(false) {}
+	ColorCycle()
+		: hue(0.0), black(false) {}
 
 	void simulate() override {
 		/*black = !black;
@@ -51,9 +50,7 @@ struct ColorCycle : public Hack::Base {
 		}*/
 	}
 
-	bool render(SDL_Surface* framebuffer) override {
-		fb = framebuffer;
-
+	bool render(SDL_Surface* fb) override {
 		/*if(black) {
 			SDL_FillRect(fb, nullptr,
 				SDL_MapRGB(fb->format, 0, 0, 0));
@@ -84,8 +81,8 @@ struct ColorCycle : public Hack::Base {
 	Uint32 tick_duration() override { return 33; } // 30Hz
 };
 
-std::unique_ptr<Hack::Base> MakeColorCycle(SDL_Surface* framebuffer) {
-	return std::make_unique<ColorCycle>(framebuffer);
+std::unique_ptr<Hack::Base> MakeColorCycle() {
+	return std::make_unique<ColorCycle>();
 }
 
 }; // namespace Hack

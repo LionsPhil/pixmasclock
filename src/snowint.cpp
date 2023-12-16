@@ -17,7 +17,7 @@ constexpr int k_snowflake_count = 4096;
 
 namespace Hack {
 struct SnowInt : public Hack::Base {
-	SDL_Surface* fb;
+	int w, h;
 	std::default_random_engine generator;
 	std::uniform_int_distribution<int> random_x;
 	std::uniform_int_distribution<int> random_y;
@@ -65,30 +65,30 @@ struct SnowInt : public Hack::Base {
 	};
 	std::array<Snowflake, k_snowflake_count> snowflakes;
 
-	SnowInt(SDL_Surface* framebuffer)
-		: fb(framebuffer),
-		random_x(0, framebuffer->w-1),
-		random_y(0, framebuffer->h-1),
+	SnowInt(int w, int h, SDL_PixelFormat* fmt)
+		: w(w), h(h),
+		random_x(0, w-1),
+		random_y(0, h-1),
 		random_delay_x(1, 20),
 		random_delay_y(1, 10),
 		random_delay_b(1, 3),
 		random_delay_next_breeze(1, 20),
 		random_coinflip(0, 1),
 		random_mass(1, 255),
-		breeze_delay(framebuffer->h),
-		breeze_sign(framebuffer->h),
+		breeze_delay(h),
+		breeze_sign(h),
 		tick(0),
 		next_breeze_in(0) {
 
 		for(int i=0; i<256; ++i) {
-			greyscale[i] = SDL_MapRGB(fb->format, i, i, i);
+			greyscale[i] = SDL_MapRGB(fmt, i, i, i);
 		}
 		for(auto&& flake : snowflakes) {
 			flake.init(*this);
 		}
 	}
 
-	int ss_at(int x, int y) { return x + fb->w * y; }
+	int ss_at(int x, int y) { return x + w * y; }
 
 	void simulate() override {
 		// Modify breezes
@@ -103,7 +103,7 @@ struct SnowInt : public Hack::Base {
 		}
 		// Smooth them and lose energy
 		// TODO: not spreading downward very well, probably due to decay pass
-		for(int y=1; y<fb->h; ++y) {
+		for(int y=1; y<h; ++y) {
 			//if(breeze_delay[y] % tick == 0) {
 				// Share influence with predecessor
 				if(breeze_sign[y-1] == breeze_sign[y]) {
@@ -149,7 +149,7 @@ struct SnowInt : public Hack::Base {
 		// Move flakes
 		for(auto&& flake : snowflakes) {
 			// Breezes
-			if(flake.y >= 0 && flake.y < fb->h &&
+			if(flake.y >= 0 && flake.y < h &&
 				breeze_sign[flake.y] != 0 &&
 				tick % breeze_delay[flake.y] == 0) {
 				flake.x += breeze_sign[flake.y];
@@ -167,14 +167,13 @@ struct SnowInt : public Hack::Base {
 			}
 
 			// Wrap
-			if(flake.x < 0) { flake.x += fb->w; }
-			if(flake.x >= fb->w) { flake.x -= fb->w; }
-			if(flake.y > fb->h) { flake.reset_at_top(*this); }
+			if(flake.x < 0) { flake.x += w; }
+			if(flake.x >= w) { flake.x -= w; }
+			if(flake.y > h) { flake.reset_at_top(*this); }
 		}
 		++tick;
 	}
-	bool render(SDL_Surface* framebuffer) override {
-		fb = framebuffer;
+	bool render(SDL_Surface* fb) override {
 		// Dirty regions only work if we can unpaint previous snowflake
 		// positions, but separate simulate() makes that hard.
 		SDL_FillRect(fb, 0, greyscale[0]);
@@ -182,11 +181,11 @@ struct SnowInt : public Hack::Base {
 
 		// Debug breezes
 #ifdef DEBUG_BREEZES
-		for(int y=0; y<fb->h; ++y) {
+		for(int y=0; y<h; ++y) {
 			if(breeze_sign[y] == 0) { continue; }
 			Uint8 d = std::max(static_cast<int>(255 - 2*breeze_delay[y]), 0);
 			SDL_Rect line { 0, static_cast<Sint16>(y),
-				static_cast<Uint16>(fb->w), 1};
+				static_cast<Uint16>(w), 1};
 			Uint32 color;
 			if(breeze_sign[y] < 0) {
 				color = SDL_MapRGB(fb->format, d, 0, 255);
@@ -200,8 +199,8 @@ struct SnowInt : public Hack::Base {
 		for(auto&& flake : snowflakes) {
 			SDL_Rect position { flake.x, flake.y, 1, 1};
 			// Skip out of bounds.
-			if(position.x < 0 || position.x >= fb->w
-				|| position.y < 0 || position.y >= fb->h)
+			if(position.x < 0 || position.x >= w
+				|| position.y < 0 || position.y >= h)
 				{ continue; }
 			unsigned int bright = flake.mass;
 			SDL_FillRect(fb, &position, greyscale[bright]);
@@ -214,8 +213,8 @@ struct SnowInt : public Hack::Base {
 	Uint32 tick_duration() override { return 100; } // 10Hz
 };
 
-std::unique_ptr<Hack::Base> MakeSnowInt(SDL_Surface* framebuffer) {
-	return std::make_unique<SnowInt>(framebuffer);
+std::unique_ptr<Hack::Base> MakeSnowInt(int w, int h, SDL_PixelFormat* fmt) {
+	return std::make_unique<SnowInt>(w, h, fmt);
 }
 
 }; // namespace Hack

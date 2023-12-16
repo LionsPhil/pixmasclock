@@ -60,25 +60,20 @@ int main(int argc, char** argv) {
 	SDL_RenderClear(graphics.renderer);
 	SDL_RenderPresent(graphics.renderer);
 
-	SDL_Surface* temp_stale_fb;
-	temp_stale_fb = SDL_CreateRGBSurface(0, graphics.w, graphics.h, 32,
-		0x00FF0000,
-		0x0000FF00,
-		0x000000FF,
-		0xFF000000);
+	SDL_Surface* tmp_fb = nullptr;
+	if(SDL_LockTextureToSurface(graphics.texture, NULL, &tmp_fb) != 0)
+		{ throw std::runtime_error(SDL_GetError()); }
 
 	// Pick one of the factory functions from hack.hpp here.
 	// TODO: Allow picking at startup or runtime.
-	// BROKEN: Segfaults, resets snow on win move(?!), double-frees the vector(?!)
-	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowFP(temp_stale_fb);
-	// BROKEN: Somehow makes the texture invalid(?!)
-	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowInt(temp_stale_fb);
-	// WORKS but window move resets snow(?!)
-	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowClock(temp_stale_fb);
+	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowFP(graphics.w, graphics.h, tmp_fb->format);
+	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowInt(graphics.w, graphics.h, tmp_fb->format);
+	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowClock(graphics.w, graphics.h);
 	// WORKS
-	std::unique_ptr<Hack::Base> hack = Hack::MakePopClock(temp_stale_fb);
-	// WORKS
-	//std::unique_ptr<Hack::Base> hack = Hack::MakeColorCycle(temp_stale_fb);
+	std::unique_ptr<Hack::Base> hack = Hack::MakePopClock(graphics.w, graphics.h);
+	//std::unique_ptr<Hack::Base> hack = Hack::MakeColorCycle();
+
+	SDL_UnlockTexture(graphics.texture);
 
 	Uint32 tickerror = 0;
 	Uint32 ticklast = SDL_GetTicks();

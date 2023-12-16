@@ -19,7 +19,7 @@ constexpr int k_snowflake_count = 1024 * 2;
 
 namespace Hack {
 struct SnowClock : public Hack::Base {
-	SDL_Surface* fb;
+	int w, h;
 	// Build up the snow on a greyscale surface for buffering, and also we want
 	// to write raw in a known pixel format rather than FillRect.
 	std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> snowfb;
@@ -315,28 +315,28 @@ struct SnowClock : public Hack::Base {
 	};
 	DigitalClock digital_clock;
 
-	SnowClock(SDL_Surface* framebuffer)
-		: fb(framebuffer),
+	SnowClock(int w, int h)
+		: w(w), h(h),
 		snowfb(nullptr, SDL_FreeSurface),
-		random_x(0, framebuffer->w-1),
-		random_y(0, framebuffer->h-1),
+		random_x(0, w-1),
+		random_y(0, h-1),
 		random_delay_x(1, 20),
 		random_delay_y(1, 10),
 		random_delay_b(1, 3),
 		random_delay_next_breeze(1, 20),
 		random_coinflip(0, 1),
 		random_mass(1, 255),
-		breeze_delay(framebuffer->h),
-		breeze_sign(framebuffer->h),
+		breeze_delay(h),
+		breeze_sign(h),
 		tick(0),
 		next_breeze_in(0),
-		static_snow(framebuffer->w, framebuffer->h),
-		digital_clock(framebuffer->w, framebuffer->h) {
+		static_snow(w, h),
+		digital_clock(w, h) {
 
 		/* Making SDL format-convert means we don't have to at write time, and
 		 * can just slap down 32-bit values. */
 		snowfb.reset(SDL_CreateRGBSurface(SDL_SWSURFACE | SDL_ASYNCBLIT,
-			fb->w, fb->h, 8, 0, 0, 0, 0));
+			w, h, 8, 0, 0, 0, 0));
 		if(snowfb.get() == nullptr) {
 			throw std::runtime_error(SDL_GetError());
 		}
@@ -373,7 +373,7 @@ struct SnowClock : public Hack::Base {
 		}
 		// Smooth them and lose energy
 		// TODO: not spreading downward very well, probably due to decay pass
-		for(int y=1; y<fb->h; ++y) {
+		for(int y=1; y<h; ++y) {
 			//if(breeze_delay[y] % tick == 0) {
 				// Share influence with predecessor
 				if(breeze_sign[y-1] == breeze_sign[y]) {
@@ -419,7 +419,7 @@ struct SnowClock : public Hack::Base {
 		// Move flakes
 		for(auto&& flake : snowflakes) {
 			// Breezes
-			if(flake.y >= 0 && flake.y < fb->h &&
+			if(flake.y >= 0 && flake.y < h &&
 				breeze_sign[flake.y] != 0 &&
 				tick % breeze_delay[flake.y] == 0) {
 				flake.x += breeze_sign[flake.y];
@@ -437,17 +437,17 @@ struct SnowClock : public Hack::Base {
 			}
 
 			// Wrap horizontally
-			if(flake.x < 0) { flake.x += fb->w; }
-			if(flake.x >= fb->w) { flake.x -= fb->w; }
+			if(flake.x < 0) { flake.x += w; }
+			if(flake.x >= w) { flake.x -= w; }
 
 			// Collide and collect with static snow/bottom of screen
-			if(flake.y >= fb->h) {
-				int mass = static_snow.at(flake.x, fb->h-1) + flake.mass;
+			if(flake.y >= h) {
+				int mass = static_snow.at(flake.x, h-1) + flake.mass;
 				if(mass > 255) {
-					static_snow.at(flake.x, fb->h-2) = mass - 255;
+					static_snow.at(flake.x, h-2) = mass - 255;
 					mass = 255;
 				}
-				static_snow.at(flake.x, fb->h-1) = mass;
+				static_snow.at(flake.x, h-1) = mass;
 				// Respawn
 				flake.reset_at_top(*this);
 			} else if(static_snow.at(flake.x, flake.y) > 0) {
@@ -480,12 +480,9 @@ struct SnowClock : public Hack::Base {
 		++tick;
 	}
 
-	bool render(SDL_Surface* framebuffer) override {
-		fb = framebuffer;
+	bool render(SDL_Surface* fb) override {
 		// Dirty regions only work if we can unpaint previous snowflake
 		// positions, but separate simulate() makes that hard.
-		int w = snowfb->w;
-		int h = snowfb->h;
 		if(SDL_MUSTLOCK(snowfb.get())) { SDL_LockSurface(snowfb.get()); }
 		SDL_FillRect(snowfb.get(), nullptr, 0);
 		Uint8* fb2_pixels = reinterpret_cast<Uint8*>(snowfb.get()->pixels);
@@ -538,8 +535,8 @@ struct SnowClock : public Hack::Base {
 	Uint32 tick_duration() override { return 100; } // 10Hz
 };
 
-std::unique_ptr<Hack::Base> MakeSnowClock(SDL_Surface* framebuffer) {
-	return std::make_unique<SnowClock>(framebuffer);
+std::unique_ptr<Hack::Base> MakeSnowClock(int w, int h) {
+	return std::make_unique<SnowClock>(w, h);
 }
 
 }; // namespace Hack

@@ -27,7 +27,7 @@ constexpr bool k_debug_fastclock = false;
 
 namespace Hack {
 struct PopClock : public Hack::Base {
-	SDL_Surface* fb;
+	int w, h;
 	// Build up the particles for buffering, and also we want
 	// to write raw in a known pixel format rather than FillRect.
 	std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> partfb;
@@ -490,20 +490,20 @@ struct PopClock : public Hack::Base {
 	};
 	DigitalClock digital_clock;
 
-	PopClock(SDL_Surface* framebuffer)
-		: fb(framebuffer),
+	PopClock(int w, int h)
+		: w(w), h(h),
 		partfb(nullptr, SDL_FreeSurface),
 		random_coinflip(0, 1),
 		random_frac(0, 1),
 		needs_paint(true),
 		have_live_particles(false),
-		static_particles(framebuffer->w, framebuffer->h),
-		digital_clock(framebuffer->w, framebuffer->h) {
+		static_particles(w, h),
+		digital_clock(w, h) {
 
 		/* Making SDL format-convert means we don't have to at write time, and
 		 * can just slap down 32-bit values. */
 		partfb.reset(SDL_CreateRGBSurface(SDL_SWSURFACE | SDL_ASYNCBLIT,
-			fb->w, fb->h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0));
+			w, h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0));
 		if(partfb.get() == nullptr) {
 			throw std::bad_alloc();
 		}
@@ -515,7 +515,6 @@ struct PopClock : public Hack::Base {
 
 	void simulate() override {
 		static int last_second;
-		auto w = fb->w, h = fb->h;
 		// Get localtime and set the clock.
 		std::time_t now_epoch = std::time(nullptr);
 		std::tm* now = std::localtime(&now_epoch);
@@ -653,12 +652,9 @@ struct PopClock : public Hack::Base {
 			[&](auto x, auto y){return digital_clock.solid_at(x, y);});
 	}
 
-	bool render(SDL_Surface* framebuffer) override {
-		fb = framebuffer;
+	bool render(SDL_Surface* fb) override {
 		if(!needs_paint) { return false; }
 
-		int w = partfb->w;
-		int h = partfb->h;
 		if(SDL_MUSTLOCK(partfb.get())) { SDL_LockSurface(partfb.get()); }
 		SDL_FillRect(partfb.get(), nullptr, 0);
 		Uint8* pfb_pixels = reinterpret_cast<Uint8*>(partfb.get()->pixels);
@@ -695,8 +691,8 @@ struct PopClock : public Hack::Base {
 	Uint32 tick_duration() override { return 33; } // 30Hz
 };
 
-std::unique_ptr<Hack::Base> MakePopClock(SDL_Surface* framebuffer) {
-	return std::make_unique<PopClock>(framebuffer);
+std::unique_ptr<Hack::Base> MakePopClock(int w, int h) {
+	return std::make_unique<PopClock>(w, h);
 }
 
 }; // namespace Hack
