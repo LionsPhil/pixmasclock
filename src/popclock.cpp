@@ -652,9 +652,9 @@ struct PopClock : public Hack::Base {
 			[&](auto x, auto y){return digital_clock.solid_at(x, y);});
 	}
 
-	bool render(SDL_Surface* fb) override {
-		if(!needs_paint) { return false; }
+	bool want_render() override { return needs_paint; }
 
+	void render(SDL_Surface* fb) override {
 		if(SDL_MUSTLOCK(partfb.get())) { SDL_LockSurface(partfb.get()); }
 		SDL_FillRect(partfb.get(), nullptr, 0);
 		Uint8* pfb_pixels = reinterpret_cast<Uint8*>(partfb.get()->pixels);
@@ -685,7 +685,6 @@ struct PopClock : public Hack::Base {
 		SDL_BlitSurface(digital_clock.rendered(), nullptr, fb, nullptr);
 		//SDL_BlitSurface(prev_clock.get(), nullptr, fb, nullptr); // DEBUG
 		needs_paint = false;
-		return true;
 	}
 
 	Uint32 tick_duration() override { return 33; } // 30Hz

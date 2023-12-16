@@ -480,7 +480,7 @@ struct SnowClock : public Hack::Base {
 		++tick;
 	}
 
-	bool render(SDL_Surface* fb) override {
+	void render(SDL_Surface* fb) override {
 		// Dirty regions only work if we can unpaint previous snowflake
 		// positions, but separate simulate() makes that hard.
 		if(SDL_MUSTLOCK(snowfb.get())) { SDL_LockSurface(snowfb.get()); }
@@ -529,7 +529,6 @@ struct SnowClock : public Hack::Base {
 		SDL_BlitSurface(snowfb.get(), nullptr, fb, nullptr);
 		// Merge in the digital clock, which is color-keyed for transparency.
 		SDL_BlitSurface(digital_clock.rendered(), nullptr, fb, nullptr);
-		return true;
 	}
 
 	Uint32 tick_duration() override { return 100; } // 10Hz

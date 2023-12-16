@@ -50,7 +50,7 @@ struct ColorCycle : public Hack::Base {
 		}*/
 	}
 
-	bool render(SDL_Surface* fb) override {
+	void render(SDL_Surface* fb) override {
 		/*if(black) {
 			SDL_FillRect(fb, nullptr,
 				SDL_MapRGB(fb->format, 0, 0, 0));
@@ -75,7 +75,6 @@ struct ColorCycle : public Hack::Base {
 		b = /*b ? 0 :*/ 255;
 		SDL_FillRect(fb, nullptr,
 			SDL_MapRGB(fb->format, r, g, b));
-		return true;
 	}
 
 	Uint32 tick_duration() override { return 33; } // 30Hz

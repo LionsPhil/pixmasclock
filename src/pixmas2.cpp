@@ -1,11 +1,17 @@
-// Copyright (c) 2020 Philip Boulain; see LICENSE for terms.
+// Copyright (c) 2023 Philip Boulain; see LICENSE for terms.
 #include <exception>
 #include <iostream>
 #include <memory>
 
+// The cryptic Reason for menu only with SDL 2 is somewhat that I don't want to
+// pull this lib into the very embedded Tontec framebuffer version.
+#include <confuse.h>
+
 // Force VSCode to know this is going to get the version 2 define here.
 #define SDLVERSION 2
 #include "hack.hpp"
+
+const char* kConfigFile = "~/.config/pixmas.conf";
 
 // This is just used to get SDL init/deinit via RAII for nice error handling.
 namespace SDL {
@@ -51,6 +57,76 @@ namespace SDL {
 	};
 };
 
+std::unique_ptr<Hack::Base> change_hack(SDL::Graphics& graphics,
+	std::string hackname) {
+
+	std::unique_ptr<Hack::Base> hack;
+	SDL_Surface* tmp_fb = nullptr;
+	if(SDL_LockTextureToSurface(graphics.texture, NULL, &tmp_fb) != 0)
+		{ throw std::runtime_error(SDL_GetError()); }
+
+	// (Still can't be bothered to set up a self-registering factory.)
+	if(hackname == "snowfp") {
+		hack = Hack::MakeSnowFP(graphics.w, graphics.h, tmp_fb->format);
+	} else if(hackname == "snowint") {
+		hack = Hack::MakeSnowInt(graphics.w, graphics.h, tmp_fb->format);
+	} else if(hackname == "snowclock") {
+		hack = Hack::MakeSnowClock(graphics.w, graphics.h);
+	} else if(hackname == "popclock") {
+		hack = Hack::MakePopClock(graphics.w, graphics.h);
+	} else if(hackname == "colorcycle") {
+		hack = Hack::MakeColorCycle();
+	} else {
+		std::cerr << "Unknown hack '" << hackname << "'" << std::endl;
+		hack = Hack::MakeColorCycle();
+	}
+
+	SDL_UnlockTexture(graphics.texture);
+	return hack;
+}
+
+void render_hack(SDL::Graphics& graphics, Hack::Base* hack) {
+	if(hack->want_render()) {
+		SDL_Surface* fb = nullptr;
+		if(SDL_LockTextureToSurface(graphics.texture, NULL, &fb) != 0)
+			{ throw std::runtime_error(SDL_GetError()); }
+		hack->render(fb);
+		SDL_UnlockTexture(graphics.texture); // Also frees fb
+		fb = nullptr;
+		SDL_RenderClear(graphics.renderer);
+		SDL_RenderCopy(graphics.renderer, graphics.texture,
+			NULL, NULL);
+		SDL_RenderPresent(graphics.renderer);
+	}
+}
+
+// Different event loop logic and nesting to preserve underlying hack.
+void menu(SDL::Graphics& graphics, cfg_t* config) {
+	std::unique_ptr<Hack::Base> menu_hack =
+		Hack::MakeMenu(graphics.w, graphics.h, config);
+	render_hack(graphics, menu_hack.get());
+	SDL_Event event;
+	bool run = true;
+	// Process events; blocking, unlike below, and interruptable by the run flag
+	// inbetween each individual event.
+	while(run && SDL_WaitEvent(&event)) {
+		// Proc event.
+		run = menu_hack->event(&event) && run;
+		switch(event.type) {
+			case SDL_QUIT:
+				run = false;
+				// Reprocess this in the main() event loop to quit entirely.
+				SDL_PushEvent(&event);
+				break;
+			default:
+				break;
+		}
+		// Sim & render menu.
+		menu_hack->simulate();
+		render_hack(graphics, menu_hack.get());
+	}
+}
+
 int main(int argc, char** argv) {
 	SDL::Graphics graphics;
 #ifndef DESKTOP
@@ -60,20 +136,17 @@ int main(int argc, char** argv) {
 	SDL_RenderClear(graphics.renderer);
 	SDL_RenderPresent(graphics.renderer);
 
-	SDL_Surface* tmp_fb = nullptr;
-	if(SDL_LockTextureToSurface(graphics.texture, NULL, &tmp_fb) != 0)
-		{ throw std::runtime_error(SDL_GetError()); }
+	cfg_opt_t config_options[] =
+	{
+		CFG_STR("hack", "snowclock", CFGF_NONE),
+		CFG_END()
+	};
+	cfg_t* config = cfg_init(config_options, CFGF_NONE);
+	// This apparently will print on failure all by itself.
+	cfg_parse(config, kConfigFile);
 
-	// Pick one of the factory functions from hack.hpp here.
-	// TODO: Allow picking at startup or runtime.
-	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowFP(graphics.w, graphics.h, tmp_fb->format);
-	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowInt(graphics.w, graphics.h, tmp_fb->format);
-	//std::unique_ptr<Hack::Base> hack = Hack::MakeSnowClock(graphics.w, graphics.h);
-	// WORKS
-	std::unique_ptr<Hack::Base> hack = Hack::MakePopClock(graphics.w, graphics.h);
-	//std::unique_ptr<Hack::Base> hack = Hack::MakeColorCycle();
-
-	SDL_UnlockTexture(graphics.texture);
+	std::unique_ptr<Hack::Base> hack =
+		change_hack(graphics, cfg_getstr(config, "hack"));
 
 	Uint32 tickerror = 0;
 	Uint32 ticklast = SDL_GetTicks();
@@ -91,6 +164,13 @@ int main(int argc, char** argv) {
 						 run = false; break;
 					default:; // Don't care.
 				}
+				break;
+			case SDL_MOUSEBUTTONUP:
+				// Go to the menu.
+				menu(graphics, config);
+				// Skip sim time forward so we don't try to catch up.
+				ticklast = SDL_GetTicks();
+				break;
 			default:; // Don't care.
 		}}
 
@@ -118,23 +198,14 @@ int main(int argc, char** argv) {
 				tickerror -= hack->tick_duration();
 				hack->simulate();
 			} while(tickerror >= hack->tick_duration());
-			SDL_Surface* fb = nullptr;
-			if(SDL_LockTextureToSurface(graphics.texture, NULL, &fb) != 0)
-				{ throw std::runtime_error(SDL_GetError()); }
-			bool rendered = hack->render(fb);
-			SDL_UnlockTexture(graphics.texture); // Also frees fb
-			fb = nullptr;
-			if(rendered) {
-				SDL_RenderClear(graphics.renderer);
-				SDL_RenderCopy(graphics.renderer, graphics.texture,
-					NULL, NULL);
-				SDL_RenderPresent(graphics.renderer);
-			}
+
+			render_hack(graphics, hack.get());
 		} else {
 			/// Have a nap until we actually have at least one tick to run.
 			SDL_Delay(hack->tick_duration());
 		}
 	}
 
+	cfg_free(config);
 	return EXIT_SUCCESS;
 }

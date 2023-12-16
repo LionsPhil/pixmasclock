@@ -173,7 +173,8 @@ struct SnowInt : public Hack::Base {
 		}
 		++tick;
 	}
-	bool render(SDL_Surface* fb) override {
+
+	void render(SDL_Surface* fb) override {
 		// Dirty regions only work if we can unpaint previous snowflake
 		// positions, but separate simulate() makes that hard.
 		SDL_FillRect(fb, 0, greyscale[0]);
@@ -207,7 +208,6 @@ struct SnowInt : public Hack::Base {
 		}
 
 		if(SDL_MUSTLOCK(fb)) { SDL_UnlockSurface(fb); }
-		return true;
 	}
 
 	Uint32 tick_duration() override { return 100; } // 10Hz

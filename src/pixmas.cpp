@@ -99,7 +99,11 @@ int main(int argc, char** argv) {
 				tickerror -= hack->tick_duration();
 				hack->simulate();
 			} while(tickerror >= hack->tick_duration());
-			if(hack->render(fb)) { SDL_Flip(fb); }
+
+			if(hack->want_render()) {
+				hack->render(fb);
+				SDL_Flip(fb);
+			}
 		} else {
 			/// Have a nap until we actually have at least one tick to run.
 			SDL_Delay(hack->tick_duration());

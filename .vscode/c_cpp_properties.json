@@ -7,7 +7,8 @@
                 "/usr/include/SDL"
             ],
             "defines": [
-                "DESKTOP"
+                "DESKTOP",
+                "SDLVERSION=2"
             ],
             "compilerPath": "/usr/bin/clang",
             "cStandard": "c11",

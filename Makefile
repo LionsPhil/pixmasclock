@@ -55,7 +55,7 @@ ifeq ($(SDLVERSION),1)
 	CPPSOURCES += pixmas.cpp
 else
 	SDLCONFIG = sdl2-config
-	CPPSOURCES += pixmas2.cpp
+	CPPSOURCES += pixmas2.cpp menu.cpp
 endif
 
 # All files which are sources, /including/ non-compiled ones (e.g. headers)
@@ -71,6 +71,11 @@ CPPWFLAGS = $(WARNFLAGS)
 CPPFLAGS  = $(CPPWFLAGS) -std=c++14 -pedantic -DVERSION='"$(VERSION)"' \
             `$(SDLCONFIG) --cflags` -DSDLVERSION='$(SDLVERSION)' $(CPPFLAGSEX)
 LDFLAGS   = `$(SDLCONFIG) --libs` -lm $(LDFLAGSEX)
+
+# Only the SDL 2 version has the menu, for Reasons
+ifneq ($(SDLVERSION),1)
+	LDFLAGS += -lconfuse
+endif
 
 EXTRACDEPS = Makefile $(HEADERS)
 

@@ -32,9 +32,13 @@ namespace Hack {
 	struct Base {
 		virtual ~Base() {}
 		virtual void simulate() = 0;
-		// Return true if screen should be updated.
-		virtual bool render(SDL_Surface* fb) = 0;
+		// Return true if render() should be called, else is skipped.
+		inline virtual bool want_render() { return true; }
+		virtual void render(SDL_Surface* fb) = 0;
 		virtual Uint32 tick_duration() = 0;
+
+		// For the menu only, process an event, return true to stay in the menu.
+		inline virtual bool event(SDL_Event* event) { return false; }
 	};
 
 	/* Just dumping some factory functions here. You could make this all
@@ -46,6 +50,9 @@ namespace Hack {
 	// Do NOT hold onto the PixelFormat; it is only valid during the c'tor,
 	// mostly for awkward legacy reasons.
 
+#if SDLVERSION != 1
+	std::unique_ptr<Hack::Base> MakeMenu(int w, int h, void* config);
+#endif
 	std::unique_ptr<Hack::Base> MakeSnowFP(int w, int h, SDL_PixelFormat* fmt);
 	std::unique_ptr<Hack::Base> MakeSnowInt(int w, int h, SDL_PixelFormat* fmt);
 	std::unique_ptr<Hack::Base> MakeSnowClock(int w, int h);
