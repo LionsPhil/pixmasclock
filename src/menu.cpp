@@ -26,7 +26,7 @@ struct Menu : public Hack::Base {
 	bool q_down[4];
 	std::string next_hack_;
 
-	enum class Page { TOP, CHOOSE_HACK, SLEEP, SHUTDOWN };
+	enum class Page { TOP, CHOOSE_HACK, SLEEP, SHUTDOWN, POWEROFF };
 	Page page;
 
 	Menu(int w, int h, cfg_t* config)
@@ -148,15 +148,27 @@ struct Menu : public Hack::Base {
 						*colors[i], q_down[i]);
 				}
 				} break;
+			case Page::SHUTDOWN: {
+				const char* labels[] =
+					{"Exit to\ndesktop", "Power\noff", "Cancel"};
+				SDL_Color* colors[] =
+					{&yellowish, &reddish, &greenish};
+				for(int i = 0; i < 3; ++i) {
+					button(fb, labels[i], q_x[i], q_y[i], q_w, q_h,
+						*colors[i], q_down[i]);
+				}
+				} break;
 			case Page::SLEEP:
 				// This should end up being rendered *after* the backlight is
 				// off, but at least will become visible if it turns back on for
 				// some reason.
 				text_at(fb, "Sleeping; tap to wake", 8, 8, whiteish, w-16);
 				break;
-			case Page::SHUTDOWN:
+			case Page::POWEROFF:
 				// This should be visible until the init system kills us.
-				text_at(fb, "Shutting down\n\nUnplug once screen blank",
+				text_at(fb,
+					"Shutting down\n\n"
+					"Unplug once screen blank and green LED stays off",
 					8, 8, whiteish, w-16);
 				break;
 		}
@@ -175,7 +187,7 @@ struct Menu : public Hack::Base {
 						return MenuResult::SCREEN_OFF;
 					case 3: // Shut down
 						page = Page::SHUTDOWN;
-						return MenuResult::SHUTDOWN;
+						return MenuResult::KEEP_MENU;
 				}
 				break;
 			case Page::CHOOSE_HACK:
@@ -187,10 +199,23 @@ struct Menu : public Hack::Base {
 					default: return MenuResult::KEEP_MENU;
 				}
 				break;
+			case Page::SHUTDOWN:
+				switch(quarter) {
+					case 0: // Desktop
+						return MenuResult::QUIT;
+					case 1: // Poweroff
+						page = Page::POWEROFF;
+						return MenuResult::SHUTDOWN;
+					case 2: // Cancel
+						page = Page::TOP;
+						return MenuResult::KEEP_MENU;
+					default: return MenuResult::KEEP_MENU;
+				}
+				break;
 			case Page::SLEEP:
 				return MenuResult::WAKE; // Wake up and return to hack
 				break;
-			case Page::SHUTDOWN:
+			case Page::POWEROFF:
 				return MenuResult::KEEP_MENU; // Mid-shutdown click ignored
 				break;
 		}

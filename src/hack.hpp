@@ -29,8 +29,10 @@
 #endif
 
 namespace Hack {
-	enum class MenuResult
-		{ KEEP_MENU, RETURN_TO_HACK, CHANGE_HACK, SCREEN_OFF, WAKE, SHUTDOWN };
+	enum class MenuResult {
+		KEEP_MENU, RETURN_TO_HACK, CHANGE_HACK,
+		SCREEN_OFF, WAKE, QUIT, SHUTDOWN
+	};
 
 	struct Base {
 		virtual ~Base() {}

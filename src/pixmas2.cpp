@@ -164,15 +164,25 @@ void menu(SDL::Graphics& graphics, cfg_t* config,
 				// fall through
 			case Hack::MenuResult::RETURN_TO_HACK:
 				run = false; break;
-			case Hack::MenuResult::SCREEN_OFF: // TODO
+			case Hack::MenuResult::SCREEN_OFF:
 				// Stay in the menu and wait for the tap to wake again.
 				backlight(false);
 				break;
-			case Hack::MenuResult::WAKE: // TODO
+			case Hack::MenuResult::WAKE:
 				backlight(true);
 				run = false;
 				break;
-			case Hack::MenuResult::SHUTDOWN: // TODO
+			case Hack::MenuResult::QUIT:
+				run = false;
+				{
+					// Create a quit event to push into the main loop.
+					SDL_Event quit_event;
+					quit_event.type = SDL_QUIT;
+					quit_event.quit.timestamp = SDL_GetTicks();
+					SDL_PushEvent(&quit_event);
+				}
+				break;
+			case Hack::MenuResult::SHUTDOWN:
 				// Stay in the menu and wait for the QUIT event.
 				shutdown();
 				break;
