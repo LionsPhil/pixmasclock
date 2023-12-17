@@ -461,6 +461,9 @@ struct SnowClock : public Hack::Base {
 				static_snow.at(flake.x, flake.y) = mass;
 				// Respawn
 				flake.reset_at_top(*this);
+			} else if(flake.y < 0) {
+				// Hit by a breeze a the top, respawn immediately.
+				flake.reset_at_top(*this);
 			} else if(digital_clock.solid_at(flake.x, flake.y)) {
 				// Collide with the digital clock and settle on top
 				// (anything on top should collide with the gathered snow).

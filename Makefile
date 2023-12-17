@@ -23,7 +23,7 @@ PRINTF = printf
 
 # Extra flags to control build type
 # Debugging:
-  CFLAGSEX = -g -O3
+  CFLAGSEX = -g -O
 CPPFLAGSEX = $(CFLAGSEX)
  LDFLAGSEX =
 # Release:
@@ -51,10 +51,10 @@ endif
 SOURCES = $(CPPSOURCES)
 
 ifeq ($(SDLVERSION),1)
-	SDLCONFIG = sdl-config
+	PKGCONFIGPKGS = sdl
 	CPPSOURCES += pixmas.cpp
 else
-	SDLCONFIG = sdl2-config
+	PKGCONFIGPKGS += sdl2 SDL2_ttf libconfuse
 	CPPSOURCES += pixmas2.cpp menu.cpp
 endif
 
@@ -69,13 +69,9 @@ CPPWFLAGS = $(WARNFLAGS)
 # Tool flags
 # Don't make CXXFLAGS include CFLAGS or it'll get duplicate CFLAGSEX
 CPPFLAGS  = $(CPPWFLAGS) -std=c++14 -pedantic -DVERSION='"$(VERSION)"' \
-            `$(SDLCONFIG) --cflags` -DSDLVERSION='$(SDLVERSION)' $(CPPFLAGSEX)
-LDFLAGS   = `$(SDLCONFIG) --libs` -lm $(LDFLAGSEX)
-
-# Only the SDL 2 version has the menu, for Reasons
-ifneq ($(SDLVERSION),1)
-	LDFLAGS += -lconfuse
-endif
+            `pkg-config $(PKGCONFIGPKGS) --cflags` \
+			-DSDLVERSION='$(SDLVERSION)' $(CPPFLAGSEX)
+LDFLAGS   = `pkg-config $(PKGCONFIGPKGS) --libs` -lm $(LDFLAGSEX)
 
 EXTRACDEPS = Makefile $(HEADERS)
 
@@ -144,7 +140,7 @@ work: $(SOURCES) $(HEADERS)
 
 # Build environment information
 env:
-	@$(ECHO) "SDL config:      : $(SDLCONFIG)"
+	@$(ECHO) "pkg-config pkgs. : $(PKGCONFIGPKGS)"
 	@$(ECHO) "C++ compiler     : $(CPPC)"
 	@$(ECHO) "Linker           : $(LD)"
 	@$(ECHO) "C++ compile flags: $(CPPFLAGS)"
