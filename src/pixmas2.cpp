@@ -13,6 +13,16 @@
 
 const char* kConfigFile = "~/.config/pixmas.conf";
 
+#ifdef DESKTOP
+const char* kCommandBacklightOn = "echo fake backlight on 2>&1";
+const char* kCommandBacklightOff = "echo fake backlight off 2>&1";
+const char* kCommandShutdown = "echo fake shutdown 2>&1";
+#else
+const char* kCommandBacklightOn = "echo 1 | sudo tee /sys/class/backlight/backlight/brightness";
+const char* kCommandBacklightOff = "echo 0 | sudo tee /sys/class/backlight/backlight/brightness";
+const char* kCommandShutdown = "sudo poweroff";
+#endif
+
 // This is just used to get SDL init/deinit via RAII for nice error handling.
 namespace SDL {
 	struct Error : public std::exception {
@@ -100,6 +110,40 @@ void render_hack(SDL::Graphics& graphics, Hack::Base* hack) {
 	}
 }
 
+void try_system(const char* cmd) {
+	int rval = system(cmd);
+	if(rval == -1) {
+		int e = errno;
+		std::cerr << "Could not create child: " << strerror(e) << std::endl;
+	} else {
+		if(WIFEXITED(rval)) {
+			int status = WEXITSTATUS(rval);
+			if(status != 0) {
+				std::cerr << "'" << cmd << "' exited status " << status
+					<< std::endl;
+			}
+		} else {
+			if(WIFSIGNALED(rval)) {
+				std::cerr << "'" << cmd << "' killed by signal "
+					<< WTERMSIG(rval) << std::endl;
+			} else {
+				std::cerr << "'" << cmd << "' exited mysteriously" << std::endl;
+			}
+		}
+	}
+}
+
+void backlight(bool on) {
+	std::cerr << "Attempting to turn backlight " << (on ? "on" : "off")
+		<< std::endl;
+	try_system(on ? kCommandBacklightOn : kCommandBacklightOff);
+}
+
+void shutdown() {
+	std::cerr << "Attempting shutdown" << std::endl;
+	try_system(kCommandShutdown);
+}
+
 // Different event loop logic and nesting to preserve underlying hack.
 void menu(SDL::Graphics& graphics, cfg_t* config,
 	std::unique_ptr<Hack::Base>& hack) {
@@ -121,8 +165,16 @@ void menu(SDL::Graphics& graphics, cfg_t* config,
 			case Hack::MenuResult::RETURN_TO_HACK:
 				run = false; break;
 			case Hack::MenuResult::SCREEN_OFF: // TODO
+				// Stay in the menu and wait for the tap to wake again.
+				backlight(false);
+				break;
+			case Hack::MenuResult::WAKE: // TODO
+				backlight(true);
+				run = false;
 				break;
 			case Hack::MenuResult::SHUTDOWN: // TODO
+				// Stay in the menu and wait for the QUIT event.
+				shutdown();
 				break;
 			default: break; // KEEP_MENU
 		}

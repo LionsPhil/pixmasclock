@@ -30,7 +30,7 @@
 
 namespace Hack {
 	enum class MenuResult
-		{ KEEP_MENU, RETURN_TO_HACK, CHANGE_HACK, SCREEN_OFF, SHUTDOWN };
+		{ KEEP_MENU, RETURN_TO_HACK, CHANGE_HACK, SCREEN_OFF, WAKE, SHUTDOWN };
 
 	struct Base {
 		virtual ~Base() {}

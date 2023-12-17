@@ -26,7 +26,7 @@ struct Menu : public Hack::Base {
 	bool q_down[4];
 	std::string next_hack_;
 
-	enum class Page { TOP, CHOOSE_HACK };
+	enum class Page { TOP, CHOOSE_HACK, SLEEP, SHUTDOWN };
 	Page page;
 
 	Menu(int w, int h, cfg_t* config)
@@ -148,6 +148,17 @@ struct Menu : public Hack::Base {
 						*colors[i], q_down[i]);
 				}
 				} break;
+			case Page::SLEEP:
+				// This should end up being rendered *after* the backlight is
+				// off, but at least will become visible if it turns back on for
+				// some reason.
+				text_at(fb, "Sleeping; tap to wake", 8, 8, whiteish, w-16);
+				break;
+			case Page::SHUTDOWN:
+				// This should be visible until the init system kills us.
+				text_at(fb, "Shutting down\n\nUnplug once screen blank",
+					8, 8, whiteish, w-16);
+				break;
 		}
 	}
 
@@ -159,8 +170,12 @@ struct Menu : public Hack::Base {
 					case 1: // Change display
 						page = Page::CHOOSE_HACK;
 						return MenuResult::KEEP_MENU;
-					case 2: return MenuResult::SCREEN_OFF; // Screen off
-					case 3: return MenuResult::SHUTDOWN; // Shut down
+					case 2: // Screen off
+						page = Page::SLEEP;
+						return MenuResult::SCREEN_OFF;
+					case 3: // Shut down
+						page = Page::SHUTDOWN;
+						return MenuResult::SHUTDOWN;
 				}
 				break;
 			case Page::CHOOSE_HACK:
@@ -171,6 +186,12 @@ struct Menu : public Hack::Base {
 						next_hack_="popclock"; return MenuResult::CHANGE_HACK;
 					default: return MenuResult::KEEP_MENU;
 				}
+				break;
+			case Page::SLEEP:
+				return MenuResult::WAKE; // Wake up and return to hack
+				break;
+			case Page::SHUTDOWN:
+				return MenuResult::KEEP_MENU; // Mid-shutdown click ignored
 				break;
 		}
 		assert(false);
