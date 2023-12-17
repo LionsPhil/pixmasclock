@@ -22,10 +22,11 @@ struct Menu : public Hack::Base {
 	int w, h;
 	cfg_t* config;
 	TTF_Font* font;
-	int q1_x, q1_y, q2_x, q2_y, q3_x, q3_y, q4_x, q4_y, q_w, q_h;
-	// bool q1_down, q2_down, q3_down, q4_down;
+	int q_x[4], q_y[4], q_w, q_h;
+	bool q_down[4];
+	std::string next_hack_;
 
-	enum class Page { TOP };
+	enum class Page { TOP, CHOOSE_HACK };
 	Page page;
 
 	Menu(int w, int h, cfg_t* config)
@@ -41,10 +42,11 @@ struct Menu : public Hack::Base {
 		const int kVSlices = 15;
 		q_w = (w*((kHSlices-3)/2))/kHSlices;
 		q_h = (h*((kVSlices-3)/2))/kVSlices;
-		q1_x = w/kHSlices; q1_y = h/kVSlices;
-		q2_x = q_w + ((w*2)/kHSlices); q2_y = q1_y;
-		q3_x = q1_x; q3_y = q_h + ((h*2)/kVSlices);
-		q4_x = q2_x; q4_y = q3_y;
+		q_x[0] = w/kHSlices; q_y[0] = h/kVSlices;
+		q_x[1] = q_w + ((w*2)/kHSlices); q_y[1] = q_y[0];
+		q_x[2] = q_x[0]; q_y[2] = q_h + ((h*2)/kVSlices);
+		q_x[3] = q_x[1]; q_y[3] = q_y[2];
+		for(int i = 0; i < 4; ++i) { q_down[i] = false; }
 	}
 
 	~Menu() {
@@ -119,34 +121,110 @@ struct Menu : public Hack::Base {
 	void render(SDL_Surface* fb) override {
 		SDL_FillRect(fb, nullptr, SDL_MapRGB(fb->format, 0x00, 0x00, 0x00));
 
-		//SDL_Color white = { 0xff, 0xff, 0xff, 0xff };
+		SDL_Color whiteish  = { 0x70, 0x70, 0x70, 0xff };
 		SDL_Color reddish   = { 0xa0, 0x20, 0x20, 0xff };
 		SDL_Color greenish  = { 0x20, 0xa0, 0x20, 0xff };
 		SDL_Color yellowish = { 0xa0, 0x70, 0x20, 0xff };
 		SDL_Color blueish   = { 0x20, 0x20, 0xc0, 0xff };
 
 		switch(page) {
+			case Page::TOP: {
+				const char* labels[] =
+					{"Resume", "Change\ndisplay", "Screen\noff", "Shut\ndown"};
+				SDL_Color* colors[] =
+					{&greenish, &blueish, &yellowish, &reddish};
+				for(int i = 0; i < 4; ++i) {
+					button(fb, labels[i], q_x[i], q_y[i], q_w, q_h,
+						*colors[i], q_down[i]);
+				}
+				} break;
+			case Page::CHOOSE_HACK: {
+				const char* labels[] =
+					{"Snow", "Pop"};
+				SDL_Color* colors[] =
+					{&whiteish, &reddish};
+				for(int i = 0; i < 2; ++i) {
+					button(fb, labels[i], q_x[i], q_y[i], q_w, q_h,
+						*colors[i], q_down[i]);
+				}
+				} break;
+		}
+	}
+
+	MenuResult click(int quarter) {
+		switch(page) {
 			case Page::TOP:
-				button(fb, "Display", q1_x, q1_y, q_w, q_h, greenish, true);
-				button(fb, "Sleep\ntime", q2_x, q2_y, q_w, q_h, blueish, false);
-				button(fb, "Sleep\nnow", q3_x, q3_y, q_w, q_h, yellowish, false);
-				button(fb, "Shut\ndown", q4_x, q4_y, q_w, q_h, reddish, false);
+				switch(quarter) {
+					case 0: return MenuResult::RETURN_TO_HACK; // Resume
+					case 1: // Change display
+						page = Page::CHOOSE_HACK;
+						return MenuResult::KEEP_MENU;
+					case 2: return MenuResult::SCREEN_OFF; // Screen off
+					case 3: return MenuResult::SHUTDOWN; // Shut down
+				}
+				break;
+			case Page::CHOOSE_HACK:
+				switch(quarter) {
+					case 0: // Snow
+						next_hack_="snowclock"; return MenuResult::CHANGE_HACK;
+					case 1: // Pop
+						next_hack_="popclock"; return MenuResult::CHANGE_HACK;
+					default: return MenuResult::KEEP_MENU;
+				}
 				break;
 		}
+		assert(false);
+		return MenuResult::RETURN_TO_HACK; // Should never happen™.
 	}
 
 	// 50Hz, but not really; we only get to act on events.
 	Uint32 tick_duration() override { return 20; }
 
-	bool event(SDL_Event* event) override {
+	MenuResult event(SDL_Event* event) override {
 		switch(event->type) {
-			case SDL_MOUSEBUTTONUP:
-				return false;
+			case SDL_MOUSEBUTTONDOWN:
+				{
+					int x = event->button.x;
+					int y = event->button.y;
+					for(int i = 0; i < 4; ++i) {
+						if((x >= q_x[i]) && (x <= q_x[i] + q_w)
+						&& (y >= q_y[i]) && (y <= q_y[i] + q_h)) {
+							q_down[i] = true;
+						}
+					}
+				}
+				break;
+			case SDL_MOUSEMOTION:
+				{
+					int x = event->motion.x;
+					int y = event->motion.y;
+					for(int i = 0; i < 4; ++i) {
+						if((x >= q_x[i]) && (x <= q_x[i] + q_w)
+						&& (y >= q_y[i]) && (y <= q_y[i] + q_h)) {
+							// Nothing; but clear if we moved *out* of it.
+							// Does not implement re-entering the same button.
+						} else {
+							q_down[i] = false;
+						}
+					}
+				}
+				break;
+			case SDL_MOUSEBUTTONUP: {
+				MenuResult result = MenuResult::KEEP_MENU;
+				for(int i = 0; i < 4; ++i) {
+					if(q_down[i]) {
+						result = click(i);
+					}
+					q_down[i] = false;
+				}
+				return result; }
 			default:
 				break;
 		}
-		return true;
+		return MenuResult::KEEP_MENU;
 	}
+
+	std::string next_hack() override { return next_hack_; }
 };
 
 std::unique_ptr<Hack::Base> MakeMenu(int w, int h, void* config) {

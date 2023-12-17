@@ -101,7 +101,9 @@ void render_hack(SDL::Graphics& graphics, Hack::Base* hack) {
 }
 
 // Different event loop logic and nesting to preserve underlying hack.
-void menu(SDL::Graphics& graphics, cfg_t* config) {
+void menu(SDL::Graphics& graphics, cfg_t* config,
+	std::unique_ptr<Hack::Base>& hack) {
+
 	std::unique_ptr<Hack::Base> menu_hack =
 		Hack::MakeMenu(graphics.w, graphics.h, config);
 	render_hack(graphics, menu_hack.get());
@@ -111,7 +113,19 @@ void menu(SDL::Graphics& graphics, cfg_t* config) {
 	// inbetween each individual event.
 	while(run && SDL_WaitEvent(&event)) {
 		// Proc event.
-		run = menu_hack->event(&event) && run;
+		Hack::MenuResult result = menu_hack->event(&event);
+		switch(result) {
+			case Hack::MenuResult::CHANGE_HACK:
+				hack = change_hack(graphics, menu_hack->next_hack());
+				// fall through
+			case Hack::MenuResult::RETURN_TO_HACK:
+				run = false; break;
+			case Hack::MenuResult::SCREEN_OFF: // TODO
+				break;
+			case Hack::MenuResult::SHUTDOWN: // TODO
+				break;
+			default: break; // KEEP_MENU
+		}
 		switch(event.type) {
 			case SDL_QUIT:
 				run = false;
@@ -167,7 +181,7 @@ int main(int argc, char** argv) {
 				break;
 			case SDL_MOUSEBUTTONUP:
 				// Go to the menu.
-				menu(graphics, config);
+				menu(graphics, config, hack);
 				// Skip sim time forward so we don't try to catch up.
 				ticklast = SDL_GetTicks();
 				break;

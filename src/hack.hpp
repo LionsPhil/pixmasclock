@@ -29,6 +29,9 @@
 #endif
 
 namespace Hack {
+	enum class MenuResult
+		{ KEEP_MENU, RETURN_TO_HACK, CHANGE_HACK, SCREEN_OFF, SHUTDOWN };
+
 	struct Base {
 		virtual ~Base() {}
 		virtual void simulate() = 0;
@@ -37,8 +40,10 @@ namespace Hack {
 		virtual void render(SDL_Surface* fb) = 0;
 		virtual Uint32 tick_duration() = 0;
 
-		// For the menu only, process an event, return true to stay in the menu.
-		inline virtual bool event(SDL_Event* event) { return false; }
+		// For the menu only, process an event.
+		inline virtual MenuResult event(SDL_Event* event)
+			{ return MenuResult::RETURN_TO_HACK; }
+		inline virtual std::string next_hack() { return ""; } // also menu only
 	};
 
 	/* Just dumping some factory functions here. You could make this all
