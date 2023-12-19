@@ -144,6 +144,15 @@ void shutdown() {
 	try_system(kCommandShutdown);
 }
 
+void save_config(cfg_t* config) {
+	// Look out, it's C.
+	char* expanded = cfg_tilde_expand(kConfigFile);
+	FILE *fp = fopen(expanded, "w");
+	free(expanded);
+	cfg_print(config, fp);
+	fclose(fp);
+}
+
 // Different event loop logic and nesting to preserve underlying hack.
 void menu(SDL::Graphics& graphics, cfg_t* config,
 	std::unique_ptr<Hack::Base>& hack) {
@@ -161,6 +170,8 @@ void menu(SDL::Graphics& graphics, cfg_t* config,
 		switch(result) {
 			case Hack::MenuResult::CHANGE_HACK:
 				hack = change_hack(graphics, menu_hack->next_hack());
+				cfg_setstr(config, "hack", menu_hack->next_hack().c_str());
+				save_config(config);
 				// fall through
 			case Hack::MenuResult::RETURN_TO_HACK:
 				run = false; break;
