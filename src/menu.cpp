@@ -130,9 +130,9 @@ struct Menu : public Hack::Base {
 		switch(page) {
 			case Page::TOP: {
 				const char* labels[] =
-					{"Resume", "Change\ndisplay", "Screen\noff", "Shut\ndown"};
+					{"Change\ndisplay", "Screen\noff", "Resume", "Shut\ndown"};
 				SDL_Color* colors[] =
-					{&greenish, &blueish, &yellowish, &reddish};
+					{&blueish, &yellowish, &greenish, &reddish};
 				for(int i = 0; i < 4; ++i) {
 					button(fb, labels[i], q_x[i], q_y[i], q_w, q_h,
 						*colors[i], q_down[i]);
@@ -140,10 +140,10 @@ struct Menu : public Hack::Base {
 				} break;
 			case Page::CHOOSE_HACK: {
 				const char* labels[] =
-					{"Snow", "Pop"};
+					{"Snow", "Pop", "Cancel"};
 				SDL_Color* colors[] =
-					{&whiteish, &reddish};
-				for(int i = 0; i < 2; ++i) {
+					{&whiteish, &reddish, &greenish};
+				for(int i = 0; i < 3; ++i) {
 					button(fb, labels[i], q_x[i], q_y[i], q_w, q_h,
 						*colors[i], q_down[i]);
 				}
@@ -178,13 +178,13 @@ struct Menu : public Hack::Base {
 		switch(page) {
 			case Page::TOP:
 				switch(quarter) {
-					case 0: return MenuResult::RETURN_TO_HACK; // Resume
-					case 1: // Change display
+					case 0: // Change display
 						page = Page::CHOOSE_HACK;
 						return MenuResult::KEEP_MENU;
-					case 2: // Screen off
+					case 1: // Screen off
 						page = Page::SLEEP;
 						return MenuResult::SCREEN_OFF;
+					case 2: return MenuResult::RETURN_TO_HACK; // Resume
 					case 3: // Shut down
 						page = Page::SHUTDOWN;
 						return MenuResult::KEEP_MENU;
@@ -196,6 +196,8 @@ struct Menu : public Hack::Base {
 						next_hack_="snowclock"; return MenuResult::CHANGE_HACK;
 					case 1: // Pop
 						next_hack_="popclock"; return MenuResult::CHANGE_HACK;
+					case 2: // Cancel
+						page = Page::TOP; return MenuResult::KEEP_MENU;
 					default: return MenuResult::KEEP_MENU;
 				}
 				break;
