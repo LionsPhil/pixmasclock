@@ -48,11 +48,12 @@ namespace SDL {
 #endif
 			if(SDL_Init(SDL_INIT_VIDEO) != 0) { throw Error(); }
 			if(SDL_CreateWindowAndRenderer(
-				virtual_w, virtual_h,
 #ifdef DESKTOP
+				virtual_w, virtual_h,
 				0,
 #else
 				// Not a "desktop" computer: use fullscreen.
+				0, 0,
 				SDL_WINDOW_FULLSCREEN_DESKTOP,
 #endif
 				&window, &renderer) != 0 ) { throw Error(); }
@@ -60,8 +61,12 @@ namespace SDL {
 #ifndef DESKTOP
 			SDL_SetWindowAlwaysOnTop(window, SDL_TRUE);
 #endif
-			if(SDL_GetRendererOutputSize(renderer, &w, &h) != 0)
-				{ throw Error(); }
+			if(virtual_w == 0) {
+				if(SDL_GetRendererOutputSize(renderer, &w, &h) != 0)
+					{ throw Error(); }
+			} else {
+				w = virtual_w; h = virtual_h;
+			}
 			texture = SDL_CreateTexture(renderer,
 							SDL_PIXELFORMAT_ARGB8888,
 							SDL_TEXTUREACCESS_STREAMING,
