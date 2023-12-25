@@ -531,7 +531,7 @@ struct SnowClock : public Hack::Base {
 					Sint16 x = flake.x + dx;
 					Sint16 y = flake.y + dy;
 					unsigned int mass = flake.mass;
-					if((dx != 0) || (dy != 0)) { mass /= 2; } // "antialias"
+					//if((dx != 0) || (dy != 0)) { mass /= 2; } // "antialias"
 #else
 			Sint16 x = flake.x;
 			Sint16 y = flake.y;
