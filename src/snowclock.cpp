@@ -16,6 +16,10 @@
 #include "hack.hpp"
 
 constexpr int k_snowflake_count = 1024 * 2;
+#if SDLVERSION != 1
+	// Assume higher res, more powerful computer. Hacks!
+	#define FAT_FLAKES
+#endif
 
 namespace Hack {
 struct SnowClock : public Hack::Base {
@@ -519,13 +523,30 @@ struct SnowClock : public Hack::Base {
 		}
 
 		for(auto&& flake : snowflakes) {
+			// Hope you're ready for some horrendous hackery.
+#ifdef FAT_FLAKES
+			for(Sint16 dy = -1; dy <= 1; ++dy) {
+				for(Sint16 dx = -1; dx <= 1; ++dx) {
+					if((dx != 0) && (dy != 0)) { continue; } // no corners
+					Sint16 x = flake.x + dx;
+					Sint16 y = flake.y + dy;
+					unsigned int mass = flake.mass;
+					if((dx != 0) || (dy != 0)) { mass /= 2; } // "antialias"
+#else
+			Sint16 x = flake.x;
+			Sint16 y = flake.y;
+			unsigned int mass = flake.mass;
+#endif
 			// Skip out of bounds.
-			if(flake.x < 0 || flake.x >= w
-				|| flake.y < 0 || flake.y >= h)
+			if(x < 0 || x >= w || y < 0 || y >= h)
 				{ continue; }
 			unsigned int bright = std::min(255u,
-				flake.mass +  *pixel_at(flake.x, flake.y));
-			*pixel_at(flake.x, flake.y) = bright;
+				mass +  *pixel_at(x, y));
+			*pixel_at(x, y) = bright;
+#ifdef FAT_FLAKES
+				}
+			}
+#endif
 		}
 
 		if(SDL_MUSTLOCK(snowfb.get())) { SDL_UnlockSurface(snowfb.get()); }
