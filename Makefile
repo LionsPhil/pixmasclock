@@ -23,7 +23,7 @@ PRINTF = printf
 
 # Extra flags to control build type
 # Debugging:
-  CFLAGSEX = -g
+  CFLAGSEX = -g -O
 CPPFLAGSEX = $(CFLAGSEX)
  LDFLAGSEX =
 # Release:

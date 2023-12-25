@@ -36,23 +36,16 @@ namespace SDL {
 		SDL_Texture* texture;
 		int w, h;
 
-		Graphics(int virtual_w, int virtual_h) {
-			// Requesting 0 x 0 will use native resolution for virtual, but...
-			if(virtual_w == 0) { virtual_h = 0; }
-			if(virtual_h == 0) { virtual_w = 0; } // no mismatching
-#ifdef DESKTOP
-			if(virtual_w == 0) {
-				// Resolution of the Pimoroni HyperPixel, rather than true.
-				virtual_w = 800; virtual_h = 480;
-			}
-#endif
+		Graphics() {
 			if(SDL_Init(SDL_INIT_VIDEO) != 0) { throw Error(); }
 			if(SDL_CreateWindowAndRenderer(
-				virtual_w, virtual_h,
 #ifdef DESKTOP
+				// Resolution of the Pimoroni HyperPixel.
+				800, 480,
 				0,
 #else
-				// Not a "desktop" computer: use fullscreen.
+				// Counterintuitively, the non-"desktop" behaviour is fullscreen.
+				0, 0,
 				SDL_WINDOW_FULLSCREEN_DESKTOP,
 #endif
 				&window, &renderer) != 0 ) { throw Error(); }
@@ -222,24 +215,22 @@ void menu(SDL::Graphics& graphics, cfg_t* config,
 }
 
 int main(int argc, char** argv) {
-	cfg_opt_t config_options[] =
-	{
-		CFG_STR("hack", "snowclock", CFGF_NONE),
-		CFG_INT("w", 0, CFGF_NONE),
-		CFG_INT("h", 0, CFGF_NONE),
-		CFG_END()
-	};
-	cfg_t* config = cfg_init(config_options, CFGF_NONE);
-	// This apparently will print on failure all by itself.
-	cfg_parse(config, kConfigFile);
-
-	SDL::Graphics graphics(cfg_getint(config, "w"), cfg_getint(config, "h"));
+	SDL::Graphics graphics;
 #ifndef DESKTOP
 	SDL_ShowCursor(0);
 #endif
 	SDL_SetRenderDrawColor(graphics.renderer, 0x77, 0x77, 0x77, 0xff);
 	SDL_RenderClear(graphics.renderer);
 	SDL_RenderPresent(graphics.renderer);
+
+	cfg_opt_t config_options[] =
+	{
+		CFG_STR("hack", "snowclock", CFGF_NONE),
+		CFG_END()
+	};
+	cfg_t* config = cfg_init(config_options, CFGF_NONE);
+	// This apparently will print on failure all by itself.
+	cfg_parse(config, kConfigFile);
 
 	std::unique_ptr<Hack::Base> hack =
 		change_hack(graphics, cfg_getstr(config, "hack"));
