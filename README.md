@@ -6,6 +6,9 @@ A digital clock for a Raspberry Pi with a framebuffer display, with festive snow
 
 **Note:** During less-festive times (like, the time of writing at this commit) I tend to reconfigure it to do something, well, less-festive. It's currently doing a cool thing with clock segments popping into rainbow sand as they change instead of snow. Fiddle with the factory functions in `main` to pick something else.
 
+There is an **SDL 2 build** you can select via the Makefile that has a menu that lets you switch between the two clocks.
+This is suitable more modern (and wasteful :P ) setups with 3D-accellerated X or Wayland, rather than framebuffer, such as a Pi 3 or 4 with a [HyperPixel display](https://shop.pimoroni.com/products/hyperpixel-4).
+
 ## Demo
 
 [![Snow gathering on clock digits, that falls from them, and off the bottom of the screen, as the hour changes.](http://img.youtube.com/vi/hGhVkTMxfyE/0.jpg)](https://www.youtube.com/watch?v=hGhVkTMxfyE "Watch the hour change on YouTube")
@@ -18,7 +21,7 @@ I targetted this for the Tontec mz61581-pi-ext on an original Raspberry Pi B+ I 
 
 (If you have the hardware, these links might help set it up: [1](https://theezitguy.wordpress.com/2016/01/17/raspberry-pi-tontec-3-5-screen-installation/), [2](https://www.raspberrypi.org/forums/viewtopic.php?f=91&t=100311))
 
-Still, SDL means this should target anything. It's *deliberately* SDL 1.2 code so it can support raw framebuffers, so you don't *have* to run X11 (although it'll work with that too, and opens in a window on x64_64 for development). It's also fair simplistic in its SDL usage, so migrating to 2 should be easy if you want to---as should be adapting it to other embedded displays.
+Still, SDL means this should target anything. It's *deliberately* SDL 1.2 code so it can support raw framebuffers, so you don't *have* to run X11 (although it'll work with that too, and opens in a window on x64_64 for development). It's also fairly simplistic in its SDL usage, so migrating to 2 was easy enough ~~should be easy if you want to~~---as should be adapting it to other embedded displays.
 
 ## Building
 
@@ -41,3 +44,5 @@ Note there's a really sloppy check in the Makefile that sets a `DESKTOP` compile
 For the Tontec GPIO display `make runonpi` will set the right environment variables to target the framebuffer, and run via `sudo` to get permissions for it.
 
 You can trade off having to run as root for opening permissions on `/dev/console`. Unfortunately on Raspbian it's `root:root`, so there's no simple group to join.
+
+You don't need to be root if you're not using the framebuffer (e.g. SDL2 build).
