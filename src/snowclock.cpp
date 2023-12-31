@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "hack.hpp"
+#include "digitalclock.hpp"
 
 constexpr int k_snowflake_count = 1024 * 2;
 #if SDLVERSION != 1
@@ -161,162 +162,6 @@ struct SnowClock : public Hack::Base {
 		}
 	};
 	StaticSnow static_snow;
-
-	class DigitalClock {
-		struct Digit {
-			bool segment[7];
-			void number(int n) {
-				segment[0] = // top
-					n==0 || n==2 || n==3 || n==5 || n==6 || n==7 || n==8 || n==9;
-				segment[1] = // top-left
-					n==0 || n==4 || n==5 || n==6 || n==7 || n==8 || n==9;
-				segment[2] = // top-right
-					n==0 || n==1 || n==2 || n==3 || n==4 || n==7 || n==8 || n==9;
-				segment[3] = // middle
-					n==2 || n==3 || n==4 || n==5 || n==6 || n==8 || n==9;
-				segment[4] = // bottom-left
-					n==0 || n==2 || n==6 || n==8;
-				segment[5] = // bottom-right
-					n==0 || n==1 || n==3 || n==4 || n==5 || n==6 || n==7 || n==8 || n==9;
-				segment[6] = // bottom
-					n==0 || n==2 || n==3 || n==5 || n==6 || n==8 || n==9;
-			}
-
-			// sw and sh are *segment* height and width; st segment thickness.
-			// Total render dimensions will be (sw, sh+st) due to the midline.
-			void render(SDL_Surface* fb,
-				Sint16 x, Sint16 y, Uint16 sw, Uint16 sh, Uint16 st) {
-				for(int s = 0; s < 7; ++s) {
-					if(!segment[s]) { continue; }
-					SDL_Rect rect = { x, y, st, st };
-					if(s==0||s==3||s==6) { // horizontal
-						rect.x += st;
-						rect.w = sw-(st*2);
-					} else { // vertical
-						rect.y += st;
-						rect.h = sh-st;
-					}
-					if(s==2||s==5) { // right
-						rect.x += sw-st;
-					}
-					if(s==4||s==5) { // bottom vertical
-						rect.y += sh;
-					}
-					if(s==3) { // middle
-						rect.y += sh;
-					}
-					if(s==6) { // bottom
-						rect.y += sh*2;
-					}
-					SDL_FillRect(fb, &rect, 1);
-				}
-			}
-		};
-		Digit digits[4];
-		int last_minute_;
-		int last_second_;
-		std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> fb;
-		// cache format info
-		Uint8 bytes_per_pixel_;
-		Uint16 pitch_;
-	public:
-		DigitalClock(int w, int h) :
-			last_minute_(-1), last_second_(-1), fb(nullptr, SDL_FreeSurface) {
-			// Make a framebuffer for the clock graphics, which can also be read
-			// back for its physics. Only uses two colors.
-			fb.reset(SDL_CreateRGBSurface(SDL_SWSURFACE | SDL_ASYNCBLIT,
-				w, h, 8, 0, 0, 0, 0));
-			if(fb.get() == nullptr) { throw std::runtime_error(SDL_GetError()); }
-			bytes_per_pixel_ = fb.get()->format->BytesPerPixel;
-			pitch_ = fb.get()->pitch;
-			// Third palette entry is for stupid debugging tricks.
-			SDL_Color pal[] = {{0, 0, 0, 0}, {0, 255, 0, 0}, {0, 127, 255, 0}};
-			if(SDL_SetColors(fb.get(), pal, 0, 3) != 1) {
-				throw std::runtime_error("failed to set clock palette");
-			}
-#if SDLVERSION == 1
-			if(SDL_SetColorKey(fb.get(), SDL_SRCCOLORKEY | SDL_RLEACCEL, 0) != 0) {
-				throw std::runtime_error("failed to set color key");
-			}
-#else
-			if(SDL_SetSurfaceRLE(fb.get(), SDL_TRUE) != 0) {
-				throw std::runtime_error("failed to set RLE");
-			}
-			if(SDL_SetColorKey(fb.get(), SDL_TRUE, 0) != 0) {
-				throw std::runtime_error("failed to set color key");
-			}
-#endif
-		}
-
-		void set_time(const std::tm* tm) {
-			// This is an optimization to avoid recalculating the same time each
-			// tick, which assumes we'll never jump to the same second in some
-			// other time, which should be reasonable for a clock.
-			if(last_second_ == tm->tm_sec) { return; }
-			last_second_ = tm->tm_sec;
-
-			// Change the festive hue based on the second.
-			Uint8 r, g, s;
-			s = std::min(tm->tm_sec, 59); // no doing evil with leap seconds
-			if(tm->tm_min % 2) { s = 59 - s; }
-			if(s < 30) {
-				r = 255;
-				g = (s*255)/29;
-			} else {
-				r = ((59-s)*255)/29;
-				g = 255;
-			}
-			SDL_Color pal[] = {{r, g, 0, 0}};
-			if(SDL_SetColors(fb.get(), pal, 1, 1) != 1) {
-				throw std::runtime_error("failed to set clock palette");
-			}
-
-			// The actually rendering is only every minute.
-			if(last_minute_ == tm->tm_min) { return; }
-			last_minute_ = tm->tm_min;
-			digits[0].number(tm->tm_hour / 10);
-			digits[1].number(tm->tm_hour % 10);
-			digits[2].number(tm->tm_min / 10);
-			digits[3].number(tm->tm_min % 10);
-
-			// Render the segments to fb
-			// Spacings as even divisions of width, where digits are double-wide:
-			// gap, 2*digit, gap, 2*digit, colon, 2*digit, gap 2*digit, gap = 13
-			// For height, it's 2*gap, 3*digit, 2*gap = 7
-			SDL_FillRect(fb.get(), nullptr, 0);
-			const int st = 8;
-			int w = fb.get()->w;
-			int h = fb.get()->h;
-			int y = ((2*h) / 7) - (st/2); // centering correction
-			int sw = (2*w) / 13;
-			int sh = (3*h) / 14; // i.e. 1.5 sevenths
-			for(int i=0; i<4; ++i) {
-				digits[i].render(fb.get(), (((i*3)+1)*w)/13, y, sw, sh, st);
-			}
-
-			// Debug by doing it again...but stupid!
-			// This did at least confirm that solid_at() works.
-			/*
-			for(Sint16 y=0; y<fb.get()->h; ++y) {
-				for(Sint16 x=0; x<fb.get()->w; ++x) {
-					if(solid_at(x, y)) {
-						SDL_Rect r = {x,y,1,1};
-						SDL_FillRect(fb.get(), &r, 2);
-					}
-				}
-			}
-			*/
-		};
-
-		SDL_Surface* rendered() { return fb.get(); } // treat as const
-
-		bool solid_at(int x, int y) {
-			assert(x >= 0); assert(x <= fb.get()->w);
-			assert(y >= 0); assert(y <= fb.get()->h);
-			return static_cast<Uint8 *>(fb.get()->pixels)
-				[(x*bytes_per_pixel_)+(y*pitch_)] != 0;
-		}
-	};
 	DigitalClock digital_clock;
 
 	SnowClock(int w, int h)
@@ -335,7 +180,7 @@ struct SnowClock : public Hack::Base {
 		tick(0),
 		next_breeze_in(0),
 		static_snow(w, h),
-		digital_clock(w, h) {
+		digital_clock(w, h, false) {
 
 		/* Making SDL format-convert means we don't have to at write time, and
 		 * can just slap down 32-bit values. */

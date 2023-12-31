@@ -37,8 +37,9 @@ endif
 
 # SOURCES ---------------------------------------------------------------------
 # Main changes based on SDL version so is inferred below.
-CPPSOURCES = snowfp.cpp snowint.cpp snowclock.cpp popclock.cpp colorcycle.cpp
-   HEADERS = hack.hpp
+CPPSOURCES = snowfp.cpp snowint.cpp snowclock.cpp popclock.cpp colorcycle.cpp \
+            digitalclock.cpp
+   HEADERS = hack.hpp digitalclock.hpp
 # Anything else you want put in the distributed version
  EXTRADIST = Makefile README.md
 
